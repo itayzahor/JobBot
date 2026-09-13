@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JobBot Dashboard</title>
+    <style>
+        :root {
+            --bg: #f4f5f7;
+            --card: #ffffff;
+            --border: #e5e7eb;
+            --text: #1a1d23;
+            --muted: #6b7280;
+            --accent: #4f46e5;
+            --accent-soft: #eef2ff;
+            --green: #16a34a;
+            --green-soft: #ecfdf3;
+            --red: #dc2626;
+            --red-soft: #fef2f2;
+            --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            max-width: 780px;
+            margin: 0 auto;
+            padding: 2.5rem 1.25rem 4rem;
+        }
+
+        header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: -0.01em;
+        }
+
+        .count {
+            color: var(--muted);
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        .nav {
+            display: flex;
+            gap: 1.25rem;
+            margin-bottom: 1.25rem;
+            font-size: 0.9rem;
+        }
+
+        .nav a {
+            color: var(--muted);
+            text-decoration: none;
+            font-weight: 600;
+            padding-bottom: 0.3rem;
+            border-bottom: 2px solid transparent;
+        }
+
+        .nav a:hover { color: var(--accent); }
+
+        .nav a.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .job {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1.25rem 1.4rem;
+            margin-bottom: 0.9rem;
+            box-shadow: var(--shadow);
+            transition: box-shadow 0.15s ease;
+        }
+
+        .job:hover {
+            box-shadow: 0 2px 6px rgba(16, 24, 40, 0.08), 0 4px 10px rgba(16, 24, 40, 0.06);
+        }
+
+        .job h2 {
+            margin: 0 0 0.15rem;
+            font-size: 1.08rem;
+            font-weight: 650;
+        }
+
+        .job h2 .company {
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.4rem;
+            margin: 0.5rem 0 0.85rem;
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.15rem 0.55rem;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            background: var(--accent-soft);
+            color: var(--accent);
+        }
+
+        .badge.site {
+            background: var(--bg);
+            color: var(--muted);
+            border: 1px solid var(--border);
+            text-transform: uppercase;
+            font-size: 0.72rem;
+            letter-spacing: 0.03em;
+        }
+
+        .dot {
+            color: var(--border);
+        }
+
+        .meta a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .meta a:hover {
+            text-decoration: underline;
+        }
+
+        details summary {
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--muted);
+            list-style: none;
+            user-select: none;
+        }
+
+        details summary::-webkit-details-marker { display: none; }
+
+        details summary::before {
+            content: "▸ ";
+            display: inline-block;
+        }
+
+        details[open] summary::before {
+            content: "▾ ";
+        }
+
+        .desc {
+            max-height: 220px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 0.88rem;
+            line-height: 1.5;
+            background: var(--bg);
+            color: var(--text);
+            padding: 0.75rem 0.9rem;
+            border-radius: 8px;
+            margin-top: 0.6rem;
+        }
+
+        .actions {
+            margin-top: 1rem;
+            display: flex;
+            gap: 0.6rem;
+        }
+
+        form { margin: 0; }
+
+        button {
+            padding: 0.45rem 1rem;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s ease;
+        }
+
+        button:hover { opacity: 0.85; }
+
+        .apply, .restore, .interview {
+            background: var(--green-soft);
+            color: var(--green);
+            border-color: rgba(22, 163, 74, 0.15);
+        }
+
+        .delete {
+            background: var(--red-soft);
+            color: var(--red);
+            border-color: rgba(220, 38, 38, 0.15);
+        }
+
+        .empty {
+            text-align: center;
+            padding: 4rem 1rem;
+            color: var(--muted);
+        }
+
+        .empty .icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .empty p {
+            font-size: 1rem;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>JobBot</h1>
+        <span class="count">{{ jobs|length }} open · {{ applied_count }} applied all-time</span>
+    </header>
+
+    <nav class="nav">
+        <a href="{{ url_for('dashboard') }}">New</a>
+        <a href="{{ url_for('deleted') }}">Deleted</a>
+        <a href="{{ url_for('applied') }}" class="active">Applied</a>
+        <a href="{{ url_for('processes') }}">Processes</a>
+    </nav>
+
+    {% for job in jobs %}
+    <div class="job">
+        <h2>{{ job.title }} — <span class="company">{{ job.company }}</span></h2>
+        <div class="meta">
+            <span>{{ job.location }}</span>
+            <span class="dot">·</span>
+            {% if job.site %}<span class="badge site">{{ job.site }}</span><span class="dot">·</span>{% endif %}
+            <a href="{{ job.url }}" target="_blank" rel="noopener">Open listing ↗</a>
+        </div>
+        <details>
+            <summary>Description</summary>
+            <div class="desc">{{ job.description }}</div>
+        </details>
+        <div class="actions">
+            <form method="post" action="{{ url_for('interview', job_id=job.id) }}">
+                <input type="hidden" name="next" value="applied">
+                <button class="interview" type="submit">Move to Process</button>
+            </form>
+            <form method="post" action="{{ url_for('undo_apply', job_id=job.id) }}">
+                <input type="hidden" name="next" value="applied">
+                <button class="delete" type="submit">Undo</button>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty">
+        <div class="icon">📨</div>
+        <p>No applied jobs right now.</p>
+    </div>
+    {% endfor %}
+</body>
+</html>

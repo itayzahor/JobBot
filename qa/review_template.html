@@ -1,0 +1,542 @@
+<title>Scrape QA</title>
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --surface: #ffffff;
+    --border: #e2e0d8;
+    --border-strong: #cfccc0;
+    --text: #1f2320;
+    --muted: #6b6f6a;
+    --accent: #3457d5;
+    --accent-soft: #eef1fc;
+    --mono-tag: #4a4e47;
+    --good: #1a7f4b;
+    --good-soft: #e8f7ee;
+    --bad: #b42318;
+    --bad-soft: #fdecea;
+    --pending: #92600a;
+    --pending-soft: #fff6e2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171a;
+      --surface: #1b1f23;
+      --border: #2a2f34;
+      --border-strong: #383e44;
+      --text: #e8e9ea;
+      --muted: #9198a1;
+      --accent: #7c94ff;
+      --accent-soft: rgba(124, 148, 255, 0.14);
+      --mono-tag: #9198a1;
+      --good: #4ade80;
+      --good-soft: rgba(74, 222, 128, 0.12);
+      --bad: #f87171;
+      --bad-soft: rgba(248, 113, 113, 0.12);
+      --pending: #fbbf24;
+      --pending-soft: rgba(251, 191, 36, 0.12);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171a;
+    --surface: #1b1f23;
+    --border: #2a2f34;
+    --border-strong: #383e44;
+    --text: #e8e9ea;
+    --muted: #9198a1;
+    --accent: #7c94ff;
+    --accent-soft: rgba(124, 148, 255, 0.14);
+    --mono-tag: #9198a1;
+    --good: #4ade80;
+    --good-soft: rgba(74, 222, 128, 0.12);
+    --bad: #f87171;
+    --bad-soft: rgba(248, 113, 113, 0.12);
+    --pending: #fbbf24;
+    --pending-soft: rgba(251, 191, 36, 0.12);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 5rem;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  h1 {
+    font-family: "Sora", "IBM Plex Sans", sans-serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 0.2rem;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  .subhead {
+    color: var(--muted);
+    font-size: 0.92rem;
+    margin: 0 0 1.5rem;
+  }
+
+  .stage-tracker {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .stage-pill {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.6rem 0.7rem;
+    background: var(--surface);
+    text-align: left;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+
+  .stage-pill:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .stage-pill.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .stage-pill .num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .stage-pill.active .num { color: var(--accent); }
+
+  .stage-pill .label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-top: 0.1rem;
+    color: var(--text);
+  }
+
+  .stats-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    flex: 1;
+    min-width: 100px;
+  }
+
+  .stat .value {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 1.35rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat.good .value { color: var(--good); }
+  .stat.bad .value { color: var(--bad); }
+  .stat.pending .value { color: var(--pending); }
+
+  .stat .label {
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 0.1rem;
+  }
+
+  .toolbar {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .search, .status-filter {
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+
+  .search { flex: 1; }
+  .status-filter { flex: 0 0 auto; }
+
+  .search:focus, .status-filter:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+
+  .job-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .job {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+  }
+
+  .job-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .job-title {
+    font-weight: 650;
+    font-size: 1rem;
+  }
+
+  .job-company {
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .job-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+    font-size: 0.82rem;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+
+  .tag {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.72rem;
+    color: var(--mono-tag);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.1rem 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .job-meta a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .job-meta a:hover { text-decoration: underline; }
+
+  .found-via {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .term-chip {
+    font-size: 0.74rem;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 999px;
+    padding: 0.08rem 0.55rem;
+  }
+
+  .verdict {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+    font-size: 0.83rem;
+  }
+
+  .verdict-badge {
+    font-weight: 700;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+
+  .verdict-badge.good { background: var(--good-soft); color: var(--good); }
+  .verdict-badge.bad { background: var(--bad-soft); color: var(--bad); }
+  .verdict-badge.pending { background: var(--pending-soft); color: var(--pending); }
+  .verdict-badge.excluded { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+
+  .verdict-reason {
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  details summary {
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--muted);
+    list-style: none;
+    margin-top: 0.55rem;
+    user-select: none;
+  }
+
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before { content: "▸ "; }
+  details[open] summary::before { content: "▾ "; }
+
+  .desc {
+    white-space: pre-wrap;
+    font-size: 0.86rem;
+    line-height: 1.55;
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    margin-top: 0.5rem;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--muted);
+  }
+
+  #count-line {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin-bottom: 0.75rem;
+  }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+
+<h1 id="page-title">Scrape QA — All</h1>
+<p class="subhead" id="page-subhead">One frozen JobSpy scrape. Switch lenses to isolate what each stage does on its own.</p>
+
+<div class="stage-tracker">
+  <button class="stage-pill active" id="pill-all" onclick="setStage('all')">
+    <div class="num">Lens</div>
+    <div class="label">All (raw scrape)</div>
+  </button>
+  <button class="stage-pill" id="pill-title" onclick="setStage('title')">
+    <div class="num">Lens</div>
+    <div class="label">Regex on title</div>
+  </button>
+  <button class="stage-pill" id="pill-gemini" onclick="setStage('gemini')">
+    <div class="num">Lens</div>
+    <div class="label">Gemini</div>
+  </button>
+</div>
+
+<div class="stats-row" id="stats-row"></div>
+
+<div class="toolbar">
+  <input class="search" id="search" type="text" placeholder="Filter by title or company…">
+  <select class="status-filter" id="status-filter"></select>
+</div>
+
+<div id="count-line"></div>
+<div class="job-list" id="job-list"></div>
+<div class="empty-state" id="empty-state" hidden>No jobs match that filter.</div>
+
+<script>
+  const JOBS = __JOBS_DATA__;
+  let stage = 'all';
+
+  // Title-filter lens: derived from stage2.status. If status is 'excluded_title', the title
+  // filter is what stopped it. Anything else (excluded_language, gemini_*, error) means the
+  // pipeline got past the title filter, so by construction the title check passed.
+  function titleVerdict(j) {
+    if (j.stage2.status === 'excluded_title') {
+      return { badge: 'excluded', label: 'Excluded', reason: j.stage2.reason };
+    }
+    return { badge: 'good', label: 'Passed', reason: 'Title check passed' };
+  }
+
+  const GEMINI_META = {
+    gemini_no:  { label: 'Gemini: No',  badge: 'bad' },
+    gemini_yes: { label: 'Gemini: Yes', badge: 'good' },
+    error:      { label: 'Error',       badge: 'pending' },
+  };
+
+  const LENS_INFO = {
+    all: {
+      title: 'Scrape QA — All',
+      subhead: 'One frozen JobSpy scrape, zero filtering applied — this is exactly what the scraper found.',
+    },
+    title: {
+      title: 'Scrape QA — Regex on title',
+      subhead: 'Only the title filter’s verdict — ignores language and Gemini entirely, so you can judge title matching in isolation.',
+    },
+    gemini: {
+      title: 'Scrape QA — Gemini',
+      subhead: 'Only jobs that reached Gemini (already past title + language filtering) — its verdict in isolation.',
+    },
+  };
+
+  function setStage(s) {
+    stage = s;
+    document.getElementById('pill-all').classList.toggle('active', s === 'all');
+    document.getElementById('pill-title').classList.toggle('active', s === 'title');
+    document.getElementById('pill-gemini').classList.toggle('active', s === 'gemini');
+    document.getElementById('page-title').textContent = LENS_INFO[s].title;
+    document.getElementById('page-subhead').textContent = LENS_INFO[s].subhead;
+    buildStatusFilter();
+    renderStats();
+    render(document.getElementById('search').value);
+  }
+
+  function buildStatusFilter() {
+    const sel = document.getElementById('status-filter');
+    sel.innerHTML = '';
+    const opts = [['all', 'All']];
+    if (stage === 'title') opts.push(['excluded', 'Excluded'], ['good', 'Passed']);
+    if (stage === 'gemini') opts.push(['gemini_yes', 'Gemini: Yes'], ['gemini_no', 'Gemini: No'], ['error', 'Error']);
+    for (const [value, label] of opts) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    }
+    sel.value = 'all';
+  }
+
+  function geminiJobs() {
+    return JOBS.filter(j => j.stage2.status === 'gemini_yes' || j.stage2.status === 'gemini_no' || j.stage2.status === 'error');
+  }
+
+  function renderStats() {
+    const row = document.getElementById('stats-row');
+    row.innerHTML = '';
+    if (stage === 'all') {
+      row.innerHTML = `
+        <div class="stat"><div class="value">${JOBS.length}</div><div class="label">Jobs scraped</div></div>
+        <div class="stat"><div class="value">${JOBS.filter(j => (j.site||'').toLowerCase()==='linkedin').length}</div><div class="label">LinkedIn</div></div>
+        <div class="stat"><div class="value">${JOBS.filter(j => (j.site||'').toLowerCase()==='indeed').length}</div><div class="label">Indeed</div></div>
+      `;
+    } else if (stage === 'title') {
+      const excluded = JOBS.filter(j => j.stage2.status === 'excluded_title').length;
+      row.innerHTML = `
+        <div class="stat bad"><div class="value">${excluded}</div><div class="label">Excluded</div></div>
+        <div class="stat good"><div class="value">${JOBS.length - excluded}</div><div class="label">Passed</div></div>
+      `;
+    } else {
+      const gj = geminiJobs();
+      const counts = { gemini_yes: 0, gemini_no: 0, error: 0 };
+      for (const j of gj) counts[j.stage2.status]++;
+      row.innerHTML = `
+        <div class="stat good"><div class="value">${counts.gemini_yes}</div><div class="label">Gemini: Yes</div></div>
+        <div class="stat bad"><div class="value">${counts.gemini_no}</div><div class="label">Gemini: No</div></div>
+        <div class="stat pending"><div class="value">${counts.error}</div><div class="label">Errors</div></div>
+        <div class="stat"><div class="value">${gj.length}</div><div class="label">Reached Gemini</div></div>
+      `;
+    }
+  }
+
+  function render(filterText) {
+    const list = document.getElementById('job-list');
+    const empty = document.getElementById('empty-state');
+    const countLine = document.getElementById('count-line');
+    const q = (filterText || '').trim().toLowerCase();
+    const statusFilter = document.getElementById('status-filter').value;
+
+    const pool = stage === 'gemini' ? geminiJobs() : JOBS;
+
+    const filtered = pool.filter(j => {
+      if (q && !((j.title||'').toLowerCase().includes(q) || (j.company||'').toLowerCase().includes(q))) return false;
+      if (stage === 'title' && statusFilter !== 'all') {
+        const badge = titleVerdict(j).badge;
+        if (statusFilter !== badge) return false;
+      }
+      if (stage === 'gemini' && statusFilter !== 'all' && j.stage2.status !== statusFilter) return false;
+      return true;
+    });
+
+    countLine.textContent = `Showing ${filtered.length} of ${pool.length}`;
+    list.innerHTML = '';
+    empty.hidden = filtered.length > 0;
+
+    for (const j of filtered) {
+      const div = document.createElement('div');
+      div.className = 'job';
+      const site = (j.site || '').toLowerCase();
+      let verdictHtml = '';
+      if (stage === 'title') {
+        const v = titleVerdict(j);
+        verdictHtml = `
+          <div class="verdict">
+            <span class="verdict-badge ${v.badge}">${v.label}</span>
+            <span class="verdict-reason">${escapeHtml(v.reason)}</span>
+          </div>
+        `;
+      } else if (stage === 'gemini') {
+        const meta = GEMINI_META[j.stage2.status];
+        verdictHtml = `
+          <div class="verdict">
+            <span class="verdict-badge ${meta.badge}">${meta.label}</span>
+            <span class="verdict-reason">${escapeHtml(j.stage2.reason)}</span>
+          </div>
+        `;
+      }
+      const foundVia = (j.search_terms || '').split(',').map(t => t.trim()).filter(Boolean);
+      const foundViaHtml = foundVia.length
+        ? `<div class="found-via">Found via: ${foundVia.map(t => `<span class="term-chip">${escapeHtml(t)}</span>`).join('')}</div>`
+        : '';
+      div.innerHTML = `
+        <div class="job-head">
+          <div class="job-title">${escapeHtml(j.title)} — <span class="job-company">${escapeHtml(j.company)}</span></div>
+          <span class="tag">${escapeHtml(site)}</span>
+        </div>
+        <div class="job-meta">
+          <span>${escapeHtml(j.location)}</span>
+          <span>·</span>
+          <span>${escapeHtml(j.date_posted)}</span>
+          <span>·</span>
+          <a href="${escapeAttr(j.job_url)}" target="_blank" rel="noopener">Open listing ↗</a>
+        </div>
+        ${foundViaHtml}
+        ${verdictHtml}
+        <details>
+          <summary>Description</summary>
+          <div class="desc">${escapeHtml(j.description)}</div>
+        </details>
+      `;
+      list.appendChild(div);
+    }
+  }
+
+  function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function escapeAttr(s) { return escapeHtml(s); }
+
+  document.getElementById('search').addEventListener('input', e => render(e.target.value));
+  document.getElementById('status-filter').addEventListener('change', () => render(document.getElementById('search').value));
+
+  buildStatusFilter();
+  renderStats();
+  render('');
+</script>

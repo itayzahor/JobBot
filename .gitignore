@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.env
+*.db
+*.sqlite3
+output/
+*.csv
+# qa/data/ is the permanent, checked-in frozen test dataset - exempt from the blanket *.csv rule.
+!qa/data/*.csv
