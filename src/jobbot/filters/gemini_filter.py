@@ -9,7 +9,7 @@ from google import genai
 from google.genai import errors, types
 from pydantic import BaseModel
 
-import config
+from jobbot import config
 
 load_dotenv()
 

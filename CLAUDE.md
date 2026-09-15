@@ -6,6 +6,29 @@ A script that crawls job boards, filters listings by title / location / required
 ## Architecture (flow)
 Job boards (LinkedIn, Indeed) -> Scraper (JobSpy) -> Filtering (title/language/Gemini) -> SQLite DB with dedup -> Flask dashboard. Self-throttling (`pipeline.run()`) plus Windows Task Scheduler stands in for a background service - no Telegram bot (considered, then dropped: the computer needs to be on regardless, so a pull-based dashboard is simpler than push notifications).
 
+## Project layout
+```
+JobBot/
+├── pipeline.py, app.py       # thin entry-point shims - see "Why pipeline.py/app.py stay at the root" below
+├── start_dashboard.bat       # manual launcher (desktop shortcut target - see Scheduling)
+├── scripts/run_pipeline_task.bat   # manual convenience only, NOT used by Task Scheduler (see Scheduling)
+├── src/jobbot/                # the actual package - everything importable lives here
+│   ├── paths.py               # single source of truth for data/log directory locations
+│   ├── config.py, db.py, scraper.py, scrape_state.py, pipeline.py, webapp.py
+│   ├── filters/                # title/language/regex/gemini filters
+│   └── templates/              # Flask templates (Flask resolves this relative to webapp.py)
+├── qa/                        # permanent test harness - unchanged location, imports from jobbot.*
+├── data/                      # gitignored runtime state: jobs.db, scrape_state.json, output/
+└── logs/                      # gitignored: pipeline.log, app.log
+```
+**Why `pipeline.py`/`app.py` stay at the root instead of moving into `src/jobbot/`:** the
+`JobBot-Pipeline` and `JobBot-Dashboard` Windows Scheduled Tasks, `start_dashboard.bat`, and the
+desktop shortcut all hard-code these two paths (`pythonw.exe pipeline.py` / `pythonw.exe app.py`,
+project root as working directory). Keeping thin shims at those exact paths means the real package
+restructure (below) needed zero changes to any of that live, external automation. Each shim just
+adds `src/` to `sys.path`, imports the real logic from `jobbot.pipeline` / `jobbot.webapp`, and
+handles the `--log-to-file` redirect (now writing to `logs/`) before delegating.
+
 ## Step 1 - Scraping
 - Library: `python-jobspy` (`pip install python-jobspy`)
 - Scrapes each (search term, site) pair as a *separate* `scrape_jobs` call, not one combined
@@ -57,10 +80,10 @@ Job boards (LinkedIn, Indeed) -> Scraper (JobSpy) -> Filtering (title/language/G
   `search_terms` are unioned.
 
 ## Step 2 - Filtering
-`filters.filter_job(title, description) -> (min_years, decision, reason)`. Every path returns a
+`jobbot.filters.filter_job(title, description) -> (min_years, decision, reason)`. Every path returns a
 `reason` string, stored and shown on the dashboard so the user can spot-check the call at a glance.
 
-- Pass 0 - title filter (`filters/title_filter.py`), runs before any other check:
+- Pass 0 - title filter (`src/jobbot/filters/title_filter.py`), runs before any other check:
   - Rejects seniority/leadership titles outright: senior, sr./sr, principal, staff (sits above
     Senior on most IC ladders - Engineer -> Senior -> Staff -> Principal), mid-level, head of,
     director, vp/vice president, chief, team lead/leader, and company leveling suffixes (e.g. "Software
@@ -72,17 +95,17 @@ Job boards (LinkedIn, Indeed) -> Scraper (JobSpy) -> Filtering (title/language/G
   - Hebrew equivalents included: מנהל (manager, exempts מנהל מוצר), בכיר (senior),
     ראש צוות (team lead), and כלכל* (economist - not a seniority signal, just an irrelevant
     profession that slips through broad search-term matches).
-- Pass 0.5 - language filter (`filters/language_filter.py`): rejects descriptions that aren't
+- Pass 0.5 - language filter (`src/jobbot/filters/language_filter.py`): rejects descriptions that aren't
   Hebrew or English (via `langdetect`) before spending a Gemini call - a non-Hebrew/English
   posting is assumed not relevant to the user regardless of what it requires.
-- Years-of-experience regex on the description (`filters/regex_filter.py`) was tried and then
+- Years-of-experience regex on the description (`src/jobbot/filters/regex_filter.py`) was tried and then
   dropped from the live pipeline - "3-5 years" phrasing has too many forms to chase reliably
   (en dashes vs hyphens, Markdown-escaped punctuation, degree-conditional alternates, a number
   landing in a "nice to have" section rather than requirements), and Gemini reads all of it
   correctly without a growing pile of special-case patterns. The file is kept as a fallback: if
   Gemini's free-tier quota ever becomes the binding constraint, reintroduce it as a cheap first
   pass ahead of Gemini rather than deleting it outright.
-- Gemini call (`filters/gemini_filter.py`) now runs for every job that clears title + language
+- Gemini call (`src/jobbot/filters/gemini_filter.py`) now runs for every job that clears title + language
   filtering, not just ones a regex pass couldn't classify:
   - Model: `gemini-3.1-flash-lite` (free tier, more than enough at this volume; `gemini-3-flash-lite` does not exist as a model name)
   - `system_instruction` is an f-string parameterized by `config.MAX_YEARS_EXPERIENCE`, defined
@@ -303,7 +326,7 @@ filter or the Gemini prompt applies to both automatically with nothing to keep i
 Everything runs locally on the user's machine - no external server or always-on service needed.
 
 **One self-throttling entry point, not a separate scheduler process.** `pipeline.run(force=False)`
-checks `scrape_state.hours_since_last_scrape()` (a UTC timestamp persisted in `scrape_state.json`)
+checks `scrape_state.hours_since_last_scrape()` (a UTC timestamp persisted in `data/scrape_state.json`)
 before doing any work: if less than `config.SCRAPE_INTERVAL_HOURS` (6) has passed, it prints one
 line and returns immediately. This makes it cheap enough to invoke very frequently regardless of
 whether that invocation actually ends up scraping.
@@ -320,7 +343,7 @@ whether that invocation actually ends up scraping.
     a GUI-subsystem build of the same interpreter with no console at all, baked into the exe
     itself, so nothing ever flashes regardless of how it's launched. Since `pythonw` has no real
     stdout to print to, `pipeline.py --log-to-file` (only used by this task, not manual runs)
-    redirects `sys.stdout`/`sys.stderr` to `pipeline.log` (gitignored) itself before running, so
+    redirects `sys.stdout`/`sys.stderr` to `logs/pipeline.log` (gitignored) itself before running, so
     scheduled-run output isn't silently lost.
   - **"Run task as soon as possible after a scheduled start is missed": ON.** The standard Windows
     mechanism for "computer was asleep/off when a trigger was due" - the moment the machine is
@@ -330,7 +353,7 @@ whether that invocation actually ends up scraping.
     forced wake varies by machine and wasn't worth the uncertainty). A run due while asleep is
     simply skipped, then caught up by the setting above once the computer is naturally on again.
 - **Dashboard "Scrape Now" button** (`POST /scrape` in `app.py`) calls `pipeline.run(force=True)`,
-  bypassing the throttle - and since it updates the same `scrape_state.json` the scheduled path
+  bypassing the throttle - and since it updates the same `data/scrape_state.json` the scheduled path
   reads, this is exactly "resets the timer" for the next automatic check, with no separate logic
   needed to keep the two in sync.
 - **A manual click and a scheduled run are two independent OS processes with no lock between
@@ -359,7 +382,7 @@ whether that invocation actually ends up scraping.
     session, not a SYSTEM one), action `venv\Scripts\pythonw.exe app.py --log-to-file` directly (no
     `.bat`/`cmd.exe`, same reasoning as `JobBot-Pipeline` - avoids a console flash at every login).
     `app.py --log-to-file` (mirrors `pipeline.py`'s flag) redirects `sys.stdout`/`sys.stderr` to
-    `app.log` (gitignored) since `pythonw` has no real stdout to print to.
+    `logs/app.log` (gitignored) since `pythonw` has no real stdout to print to.
 - **`start_dashboard.bat`** at the project root - the manual path: checks whether something is
   already listening on port 5000 (`Get-NetTCPConnection -LocalPort 5000 -State Listen`) before
   starting a new `venv\Scripts\python.exe app.py` (visible console - the user explicitly wants to

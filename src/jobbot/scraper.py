@@ -10,7 +10,7 @@ import pandas as pd
 from jobspy import scrape_jobs
 from jobspy.linkedin import LinkedIn as _LinkedInScraper
 
-import config
+from jobbot import config
 
 COLUMNS = ["title", "company", "location", "description", "job_url", "date_posted"]
 
@@ -198,11 +198,11 @@ def _dedup_cross_site(df: pd.DataFrame) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
+    from jobbot.paths import OUTPUT_DIR
+
     df = scrape_all()
     print(f"\nTotal unique jobs: {len(df)}")
-    out_path = "output/scraped_jobs.csv"
-    import os
-
-    os.makedirs("output", exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / "scraped_jobs.csv"
     df.to_csv(out_path, index=False)
     print(f"Saved to {out_path}")

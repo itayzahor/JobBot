@@ -19,12 +19,12 @@ from collections import Counter
 
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from filters.gemini_filter import classify
-from filters.language_filter import is_allowed_language
-from filters.title_filter import get_exclusion_reason
-from scraper import scrape_all
+from jobbot.filters.gemini_filter import classify
+from jobbot.filters.language_filter import is_allowed_language
+from jobbot.filters.title_filter import get_exclusion_reason
+from jobbot.scraper import scrape_all
 
 QA_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(QA_DIR, "data")

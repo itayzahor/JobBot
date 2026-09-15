@@ -3,7 +3,7 @@
 import hashlib
 import sqlite3
 
-DB_PATH = "jobs.db"
+from jobbot.paths import DB_PATH
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -67,7 +67,7 @@ def get_connection() -> sqlite3.Connection:
     # that a scheduled run (Task Scheduler) and a manual "Scrape Now" click are two independent
     # processes with no lock between them - the 5s default could raise "database is locked" on a
     # real collision; 30s comfortably outlasts our fast, single-row transactions.
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.execute(SCHEMA)
     conn.execute(_META_SCHEMA)
     existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}

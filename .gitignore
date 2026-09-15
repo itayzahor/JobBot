@@ -2,9 +2,12 @@ venv/
 __pycache__/
 *.pyc
 .env
+# /data/ and /logs/ (rooted, not "data/") so this doesn't also swallow the permanent qa/data/
+# dataset below - only the top-level data/ and logs/ directories are runtime/gitignored.
+/data/
+/logs/
 *.db
 *.sqlite3
-output/
 *.csv
 *.log
 # qa/data/ is the permanent, checked-in frozen test dataset - exempt from the blanket *.csv rule.

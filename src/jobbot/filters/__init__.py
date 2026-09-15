@@ -10,10 +10,10 @@ If Gemini's free-tier quota ever becomes the binding constraint, `filters/regex_
 still here to reintroduce as a cheap first pass.
 """
 
-from filters.gemini_filter import GeminiQuotaExceededError
-from filters.gemini_filter import classify as gemini_classify
-from filters.language_filter import is_allowed_language
-from filters.title_filter import get_exclusion_reason
+from jobbot.filters.gemini_filter import GeminiQuotaExceededError
+from jobbot.filters.gemini_filter import classify as gemini_classify
+from jobbot.filters.language_filter import is_allowed_language
+from jobbot.filters.title_filter import get_exclusion_reason
 
 
 def filter_job(title: str, description: str, verbose: bool = False) -> tuple[int | None, str, str]:

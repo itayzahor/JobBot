@@ -1,3 +1,3 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0\.."
 venv\Scripts\python.exe pipeline.py

@@ -4,22 +4,21 @@ config.SCRAPE_INTERVAL_HOURS and widen its search window to cover any gap after 
 """
 
 import json
-import os
 from datetime import datetime, timezone
 
-STATE_PATH = "scrape_state.json"
+from jobbot.paths import SCRAPE_STATE_PATH
 
 
 def get_last_scrape_time() -> datetime | None:
-    if not os.path.exists(STATE_PATH):
+    if not SCRAPE_STATE_PATH.exists():
         return None
-    with open(STATE_PATH, encoding="utf-8") as f:
+    with open(SCRAPE_STATE_PATH, encoding="utf-8") as f:
         data = json.load(f)
     return datetime.fromisoformat(data["last_scrape"])
 
 
 def set_last_scrape_time(dt: datetime) -> None:
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
+    with open(SCRAPE_STATE_PATH, "w", encoding="utf-8") as f:
         json.dump({"last_scrape": dt.isoformat()}, f)
 
 
