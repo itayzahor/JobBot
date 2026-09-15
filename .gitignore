@@ -6,5 +6,6 @@ __pycache__/
 *.sqlite3
 output/
 *.csv
+*.log
 # qa/data/ is the permanent, checked-in frozen test dataset - exempt from the blanket *.csv rule.
 !qa/data/*.csv

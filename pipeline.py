@@ -4,6 +4,7 @@ Self-throttles to roughly every config.SCRAPE_INTERVAL_HOURS when not forced, so
 invoke frequently (e.g. every 15 min via Task Scheduler) without actually scraping every time.
 """
 
+import os
 import sys
 from datetime import datetime, timezone
 
@@ -95,4 +96,14 @@ def run(force: bool = False) -> None:
 
 
 if __name__ == "__main__":
+    if "--log-to-file" in sys.argv:
+        # Used by the Task Scheduler action, which runs pythonw.exe directly (no console window
+        # at all, unlike python.exe/cmd.exe) - pythonw has no real stdout to print to, so redirect
+        # our own prints into a persistent log file instead of losing them silently. Manual runs
+        # (`python pipeline.py` from a terminal) don't pass this flag and keep printing normally.
+        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline.log")
+        log_file = open(log_path, "a", encoding="utf-8")
+        sys.stdout = log_file
+        sys.stderr = log_file
+        print(f"\n=== {datetime.now(timezone.utc).isoformat()} ===")
     run(force="--force" in sys.argv)

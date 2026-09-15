@@ -309,9 +309,19 @@ line and returns immediately. This makes it cheap enough to invoke very frequent
 whether that invocation actually ends up scraping.
 
 - **Windows Task Scheduler**: one task, `JobBot-Pipeline`, triggered every 15 minutes all day,
-  running `venv\Scripts\python.exe pipeline.py` with the project root as working directory.
-  Almost every firing is a fast no-op; real scraping happens roughly every 6 hours - and
-  immediately after a gap, via two settings on that task (Settings tab):
+  running `venv\Scripts\pythonw.exe pipeline.py --log-to-file` directly (no `.bat`/`cmd.exe`
+  wrapper) with the project root as working directory. Almost every firing is a fast no-op; real
+  scraping happens roughly every 6 hours - and immediately after a gap, via two settings on that
+  task (Settings tab):
+  - **`pythonw.exe`, not `python.exe`, and no `.bat` in between**: a console-subsystem process
+    (`python.exe`, or `cmd.exe` when Task Scheduler runs a `.bat` file) always briefly flashes a
+    window when launched, even with the task's own "Hidden" setting off - that "Hidden" flag only
+    controls Task Scheduler UI visibility, not the launched process's own window. `pythonw.exe` is
+    a GUI-subsystem build of the same interpreter with no console at all, baked into the exe
+    itself, so nothing ever flashes regardless of how it's launched. Since `pythonw` has no real
+    stdout to print to, `pipeline.py --log-to-file` (only used by this task, not manual runs)
+    redirects `sys.stdout`/`sys.stderr` to `pipeline.log` (gitignored) itself before running, so
+    scheduled-run output isn't silently lost.
   - **"Run task as soon as possible after a scheduled start is missed": ON.** The standard Windows
     mechanism for "computer was asleep/off when a trigger was due" - the moment the machine is
     next on, Windows fires the missed run itself. Covers both sleep and full shutdown with one
@@ -339,8 +349,30 @@ whether that invocation actually ends up scraping.
   postings for one search term, in which case only the most recent 200 are captured. Not solved
   (would need real backfill/pagination beyond the ceiling); acceptable given how rare a multi-day
   gap should be in practice.
-- **`start_dashboard.bat`** at the project root - launches `app.py` and opens the dashboard in the
-  default browser. Meant to be turned into a normal Windows desktop shortcut for one-click access.
+- **The dashboard used to not survive a reboot at all.** Unlike the pipeline, which has always
+  been a real Task Scheduler task, `app.py` was only ever started by hand (a tool call, or a
+  double-click on `start_dashboard.bat`) - nothing registered it to come back after a restart, so
+  a reboot (or just closing whatever window/session had launched it) always silently killed it.
+  Fixed with a second Task Scheduler task, mirroring the pipeline one:
+  - **`JobBot-Dashboard`**: trigger "At log on" for this Windows user (not "At startup"/SYSTEM -
+    the app reads/writes files under the user's own profile, so it needs the user's own logon
+    session, not a SYSTEM one), action `venv\Scripts\pythonw.exe app.py --log-to-file` directly (no
+    `.bat`/`cmd.exe`, same reasoning as `JobBot-Pipeline` - avoids a console flash at every login).
+    `app.py --log-to-file` (mirrors `pipeline.py`'s flag) redirects `sys.stdout`/`sys.stderr` to
+    `app.log` (gitignored) since `pythonw` has no real stdout to print to.
+- **`start_dashboard.bat`** at the project root - the manual path: checks whether something is
+  already listening on port 5000 (`Get-NetTCPConnection -LocalPort 5000 -State Listen`) before
+  starting a new `venv\Scripts\python.exe app.py` (visible console - the user explicitly wants to
+  be able to see this one, unlike the scheduled tasks), then always opens the dashboard in the
+  default browser. The port check matters because `JobBot-Dashboard` (above) is very likely
+  already running by the time anyone clicks this - without it, a click would try to bind port 5000
+  a second time, fail immediately, and print a spurious "address already in use" error. A desktop
+  shortcut ("JobBot Dashboard.lnk", created via `WScript.Shell`'s `CreateShortcut`, target =
+  `start_dashboard.bat`) gives one-click access to open the dashboard regardless of whether the
+  auto-start task already has it running - the "even a desktop button" part of the request.
+- **`run_pipeline_task.bat`** - no longer used by Task Scheduler (see above - the scheduled task
+  now calls `pythonw.exe` directly to avoid the console flash a `.bat` file causes). Kept as a
+  convenience for manually triggering a real, visible-console pipeline run outside the dashboard.
 
 ## Roadmap (step order)
 1. Scrape LinkedIn + Indeed with JobSpy -> DataFrame/CSV

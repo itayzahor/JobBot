@@ -1,5 +1,7 @@
 """Step 4: local Flask dashboard for browsing new jobs and marking them deleted/applied."""
 
+import os
+import sys
 import threading
 from datetime import date, datetime, timezone
 
@@ -185,6 +187,16 @@ def notes(job_id):
 
 
 if __name__ == "__main__":
+    if "--log-to-file" in sys.argv:
+        # Used by the Task Scheduler "at log on" auto-start task, which runs pythonw.exe (no
+        # console, so no visible window at every login) - same reasoning and pattern as
+        # pipeline.py's --log-to-file. Manual runs (start_dashboard.bat) don't pass this and keep
+        # printing to the visible console, per explicit user preference for that one.
+        log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.log")
+        log_file = open(log_path, "a", encoding="utf-8")
+        sys.stdout = log_file
+        sys.stderr = log_file
+        print(f"\n=== {datetime.now(timezone.utc).isoformat()} ===")
     # use_reloader=False: the debug reloader spawns a second process, which would double-fire
     # any background thread started from a request (like /scrape) - not just wasteful, it would
     # race two concurrent pipeline runs against the same DB.
