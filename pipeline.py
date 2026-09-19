@@ -3,6 +3,10 @@ task and run_pipeline_task.bat both invoke this exact path (`pythonw.exe pipelin
 project root as the working directory - moving it into src/jobbot/ would require updating that
 live scheduled task. The real logic lives in src/jobbot/pipeline.py; this just wires up sys.path,
 the --log-to-file redirect (pythonw has no real stdout), and CLI flags.
+
+--hours-old N forces a scrape of the last N hours regardless of the normal auto-computed window -
+a manual one-off for pulling in a bigger batch to label (e.g. `python pipeline.py --force
+--hours-old 24`), not used by any scheduled task.
 """
 
 import os
@@ -24,4 +28,7 @@ if __name__ == "__main__":
         sys.stdout = log_file
         sys.stderr = log_file
         print(f"\n=== {datetime.now(timezone.utc).isoformat()} ===")
-    pipeline.run(force="--force" in sys.argv)
+    hours_old = None
+    if "--hours-old" in sys.argv:
+        hours_old = int(sys.argv[sys.argv.index("--hours-old") + 1])
+    pipeline.run(force="--force" in sys.argv, hours_old=hours_old)

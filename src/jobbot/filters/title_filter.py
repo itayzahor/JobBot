@@ -48,8 +48,22 @@ PRODUCT_MANAGER_HE_PATTERN = re.compile(r"מנהל\S*\s*מוצר")
 IRRELEVANT_ROLE_PATTERNS = [
     ("economist", re.compile(r"\beconomist\b", re.IGNORECASE)),
     ("economist (he)", re.compile(r"כלכל")),  # root shared by כלכלן/כלכלנית/כלכלן/ית
-    ("student", re.compile(r"\bstudent\b", re.IGNORECASE)),
-    ("student (he)", re.compile(r"סטודנט")),
+    # "student" was dropped from here (was blanket-rejecting "Student, R&D" roles too, which are
+    # a genuine fit for a CS grad with no formal experience - not just irrelevant academic
+    # postings) - undecided whether/how to bring it back narrower, revisit later.
+    # Field Engineer / Field Applications Engineer / Field Service Engineer, etc. - customer-
+    # site/travel-heavy roles, not a fit regardless of years-of-experience.
+    ("field role", re.compile(r"\bfield\s+(?:\w+\s+)?engineer\b", re.IGNORECASE)),
+    # "Application Engineer" (not "Application Software Engineer", which the \s+engineer\b
+    # boundary excludes) - confirmed via qa/prompt_eval.py's ground truth: every real posting
+    # under this title was for hardware/customer-deployment support (e.g. semiconductor tooling),
+    # never a software role, despite touching "algorithm support"/"software teams" tangentially.
+    ("application engineer", re.compile(r"\bapplication\s+engineer\b", re.IGNORECASE)),
+    # Business Intelligence - reporting/dashboarding/data-warehouse analytics, not data
+    # engineering, despite superficially overlapping vocabulary (Gemini was seen rationalizing a
+    # "Business Intelligence Architect" posting as data-engineering-adjacent - see CLAUDE.md).
+    ("business intelligence", re.compile(r"\bbusiness\s+intelligence\b", re.IGNORECASE)),
+    ("BI (acronym)", re.compile(r"\bBI\b")),  # case-sensitive: literal "BI", not "bi-weekly" etc.
 ]
 
 

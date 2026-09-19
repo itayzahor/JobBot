@@ -13,22 +13,34 @@ import pandas as pd
 
 from jobbot import config, db, scrape_state
 from jobbot.filters import filter_job
-from jobbot.scraper import scrape_all
+from jobbot.scraper import dedup_key, is_same_posting, scrape_all
 
 
-def run(force: bool = False) -> None:
+def run(force: bool = False, hours_old: int | None = None) -> None:
     if not force:
         elapsed = scrape_state.hours_since_last_scrape()
         if elapsed is not None and elapsed < config.SCRAPE_INTERVAL_HOURS:
             print(f"Only {elapsed:.1f}h since last scrape (need {config.SCRAPE_INTERVAL_HOURS}h) - skipping")
             return
 
-    # None (no prior scrape recorded) falls back to config.HOURS_OLD inside scrape_all. Otherwise
-    # widen the window to cover however long it's actually been, so a gap (computer asleep/off)
-    # doesn't silently miss everything posted during it.
-    hours_old_override = scrape_state.hours_since_last_scrape()
+    # hours_old is an explicit override for a one-off wider scrape (e.g. manually pulling in more
+    # ground-truth examples to label) - takes precedence over the normal auto-computed window. None
+    # (the normal case) falls back to elapsed time since the last scrape, which itself falls back to
+    # config.HOURS_OLD inside scrape_all if no prior scrape was recorded. Widening to actual elapsed
+    # time (rather than always using the fixed default) means a gap - computer asleep/off - doesn't
+    # silently miss everything posted during it.
+    hours_old_override = hours_old if hours_old is not None else scrape_state.hours_since_last_scrape()
     df = scrape_all(hours_old_override=hours_old_override)
     conn = db.get_connection()
+
+    # scraper._dedup_cross_site only fuzzy-matches descriptions within this run's own DataFrame,
+    # so it can't catch a duplicate whose sibling site was scraped in an earlier run (e.g. a job
+    # LinkedIn indexed a day before Indeed did). Build a lookup of recent DB rows by (company,
+    # title) once up front so each new row can be fuzzy-checked against them too, below.
+    recent_candidates: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for candidate in db.get_recent_for_dedup(conn, hours=24):
+        key = ((candidate["company"] or "").lower(), dedup_key(candidate["title"] or ""))
+        recent_candidates.setdefault(key, []).append((candidate["id"], candidate["description"] or ""))
 
     inserted = 0
     skipped_no = 0
@@ -46,10 +58,21 @@ def run(force: bool = False) -> None:
 
         title = row.get("title") or ""
         description = row.get("description") or ""
+        location = row.get("location") or ""
+
+        # Cross-run cross-site dedup: same posting, different site, scraped in a different run
+        # (and so under a different job_url than the check above catches).
+        candidate_key = ((row.get("company") or "").lower(), dedup_key(title))
+        if any(
+            is_same_posting(description, candidate_description)
+            for _, candidate_description in recent_candidates.get(candidate_key, [])
+        ):
+            skipped_dupe += 1
+            continue
         # verbose=False (default): skips Gemini's reason text, the one part of the call with
         # real added latency/output-token cost - reason is qa/ tooling only, not shown in
         # production, so `reason` is intentionally left out of the job dict below (stored NULL).
-        min_years, decision, _reason = filter_job(title, description)
+        min_years, decision, _reason = filter_job(title, description, location=location)
 
         # date_posted: the real posting date from LinkedIn/Indeed when JobSpy could extract one
         # (a plain datetime.date - stored as its ISO string, "YYYY-MM-DD"). Missing shows up as

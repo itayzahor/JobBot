@@ -80,8 +80,9 @@ handles the `--log-to-file` redirect (now writing to `logs/`) before delegating.
   `search_terms` are unioned.
 
 ## Step 2 - Filtering
-`jobbot.filters.filter_job(title, description) -> (min_years, decision, reason)`. Every path returns a
-`reason` string, stored and shown on the dashboard so the user can spot-check the call at a glance.
+`jobbot.filters.filter_job(title, description, location=None) -> (min_years, decision, reason)`.
+Every path returns a `reason` string, stored and shown on the dashboard so the user can spot-check
+the call at a glance.
 
 - Pass 0 - title filter (`src/jobbot/filters/title_filter.py`), runs before any other check:
   - Rejects seniority/leadership titles outright: senior, sr./sr, principal, staff (sits above
@@ -95,6 +96,16 @@ handles the `--log-to-file` redirect (now writing to `logs/`) before delegating.
   - Hebrew equivalents included: מנהל (manager, exempts מנהל מוצר), בכיר (senior),
     ראש צוות (team lead), and כלכל* (economist - not a seniority signal, just an irrelevant
     profession that slips through broad search-term matches).
+  - Rejects "Field Engineer" / "Field Applications Engineer" / "Field Service Engineer"-style
+    titles (`\bfield\s+(?:\w+\s+)?engineer\b`) - customer-site/travel-heavy roles the user noticed
+    slipping through, same "wrong field entirely" category as economist/student.
+- Pass 0 - location filter (`src/jobbot/filters/location_filter.py`): rejects a job whose location
+  contains Ashdod (English or אשדוד) - outside the commute range `config.DISTANCE_MILES` is meant
+  to enforce, but the user kept seeing Ashdod postings anyway. Not fixed by shrinking the radius:
+  LinkedIn only supports fixed radius steps (5/10/25/50/75/100 mi), and the next step down (10mi)
+  would also cut out Ra'anana/Holon, which are wanted - so this is a location-text filter instead,
+  same shape as the title filter. Checked in `filter_job` alongside the title check, before
+  language/Gemini.
 - Pass 0.5 - language filter (`src/jobbot/filters/language_filter.py`): rejects descriptions that aren't
   Hebrew or English (via `langdetect`) before spending a Gemini call - a non-Hebrew/English
   posting is assumed not relevant to the user regardless of what it requires.
@@ -105,11 +116,28 @@ handles the `--log-to-file` redirect (now writing to `logs/`) before delegating.
   correctly without a growing pile of special-case patterns. The file is kept as a fallback: if
   Gemini's free-tier quota ever becomes the binding constraint, reintroduce it as a cheap first
   pass ahead of Gemini rather than deleting it outright.
-- Gemini call (`src/jobbot/filters/gemini_filter.py`) now runs for every job that clears title + language
-  filtering, not just ones a regex pass couldn't classify:
-  - Model: `gemini-3.1-flash-lite` (free tier, more than enough at this volume; `gemini-3-flash-lite` does not exist as a model name)
-  - `system_instruction` is an f-string parameterized by `config.MAX_YEARS_EXPERIENCE`, defined
-    once in code. Deliberately kept short - see below for why. Two-step: Gemini first estimates
+- Gemini call (`src/jobbot/filters/gemini_filter.py`) now runs for every job that clears title +
+  location + language filtering, not just ones a regex pass couldn't classify:
+  - **Live production prompt (promoted 2026-09-19): `quote_first_background_v3`**, the winner of the
+    `qa/prompt_eval.py` comparison on real human labels (recall 1.000, precision 0.309 - vs. 0.971 /
+    0.237 for the previous years-only prompt; full table in the `# SCORES` comments in
+    `qa/prompt_variants.py`). It makes two independent judgments per job: `years_estimate` (explicit
+    number/range only; quote-the-sentence-first; a capped carve-out when the posting itself invites
+    less-experienced candidates) and `relevant_background` (is the role's core discipline software /
+    data / ML-AI / product-or-technical-program management, vs. a clearly different profession -
+    sales, business intelligence, support, hardware technician, admin, ...; permissive when
+    ambiguous). **`fit` is never asked of the model** - `classify()` derives
+    `fit = years_estimate <= MAX_YEARS_EXPERIENCE and relevant_background` in Python (the model's own
+    `fit` field was measured disagreeing with its own `years_estimate` at the boundary). The prompt
+    text is the plain string `gemini_filter.SYSTEM_INSTRUCTION`; `qa/prompt_variants.py` imports it
+    so the eval and production can't drift, and keeps the old prompt frozen as `LEGACY_CURRENT`.
+    Trade-off accepted: ~1255 tokens/call vs ~1120 for the old prompt.
+  - Model: `gemini-3.1-flash-lite` (`gemini-3-flash-lite` does not exist as a model name). Billing is
+    enabled on the API key, so the free-tier daily cap described below no longer binds.
+  - The bullets below through "Case battery" describe the **previous years-only prompt**. They stay as
+    the rationale for behavior the v3 prompt preserves (explicit-number-only, "or" branches).
+  - The previous prompt: `system_instruction` was an f-string parameterized by
+    `config.MAX_YEARS_EXPERIENCE`. Two-step: Gemini first estimates
     `years_estimate` from an EXPLICIT number/range only (0 if none is given; lower bound of a
     range; ignores a lower number that only applies with an advanced degree the candidate doesn't
     have), then `fit = years_estimate <= MAX_YEARS_EXPERIENCE`.
@@ -135,18 +163,149 @@ handles the `--log-to-file` redirect (now writing to `logs/`) before delegating.
   - `contents` = job title + description (any language - not a problem)
   - `classify(title, description, verbose=False)` - the `verbose` flag is the production/test split
     (see "Test tooling" below): `verbose=False` (production default) requests the minimal
-    `FitResult(fit, years_estimate)` schema - no `reason` field, since generating a full sentence is
-    the one part of this call with real added latency/output-token cost; `years_estimate` stays
-    (~1 extra token, negligible) since it's cheap and may be useful later even though production
-    doesn't currently display it. `verbose=True` (`qa/` only) requests `JobFitResult` with `reason`
-    too. Both paths share one client, one throttle/retry engine, one `SYSTEM_INSTRUCTION` - only
-    the requested schema differs, so a prompt fix always applies to both automatically.
+    `BackgroundJudgment(years_estimate, relevant_background)` schema - no `reason` field, since
+    generating a full sentence is the one part of this call with real added latency/output-token
+    cost. `verbose=True` (`qa/` only) requests `VerboseBackgroundJudgment`, adding `reason`. Both
+    paths share one client, one throttle/retry engine, one `SYSTEM_INSTRUCTION` - only the requested
+    schema differs, so a prompt fix always applies to both automatically. The return is always a
+    `JobFitResult(fit, years_estimate, reason)` with `fit` derived as described above.
   - `decision` stored in the DB is `"yes"` if `fit` else `"no"` (no three-way enum - ambiguous cases
     already lean `fit=true` per the prompt).
   - Rate-limited on the free tier per-minute AND per-day (500 requests/day for this model - a hard
     cap, distinct from the per-minute limit) - calls are throttled and retried with backoff on
     429/5xx before giving up for the rest of a run. If quota is exhausted, remaining jobs default
     to `decision="yes"` (not auto-screened, flagged for manual review) rather than being hidden.
+  - `classify()` also takes optional `system_instruction` (override the module `SYSTEM_INSTRUCTION`)
+    and `return_usage` (return `(JobFitResult, usage_metadata)` instead of just `JobFitResult`) -
+    both `qa/prompt_eval.py`-only, unused by production, added so the eval harness can drive
+    arbitrary prompt text through the exact same client/throttle/retry path instead of duplicating it.
+    `judge_background` defaults to `True` (the production schema above); `False` selects the legacy
+    years-only schema where the model outputs `fit` itself, kept solely so the eval can still score the
+    older variants.
+
+## Prompt-engineering evaluation (`qa/prompt_eval.py`) and the promoted prompt
+Goal: score candidate `SYSTEM_INSTRUCTION` rewrites against real human labels instead of against
+Gemini's own past output (the frozen `qa/data/` dataset has zero human labels - every field in it
+is Gemini's own verdict, useless as ground truth).
+
+- **`pipeline.py --force --hours-old N`**: forces an immediate scrape of the last N hours,
+  overriding the normal auto-computed window - a manual one-off for pulling in a bigger batch to
+  label right away instead of waiting for the next scheduled run (real scrapes are self-throttled
+  to `config.SCRAPE_INTERVAL_HOURS`), used to jump-start ground-truth collection after flipping
+  `COLLECTING_GROUND_TRUTH`. Not used by any scheduled task.
+- **Ground truth comes from real dashboard use, not a separate labeling tool**: `status='applied'`/
+  `'process'` -> label `True` ("I'd apply to this"), `status='deleted'` -> label `False` ("I saw
+  this and didn't want it"). Noisier than a dedicated per-job judgment (a deletion could be about
+  company/role fit, not years-of-experience) but costs no extra manual effort - accepted trade-off,
+  per explicit user direction.
+- **`config.COLLECTING_GROUND_TRUTH` (now `False` - turned off 2026-09-19 when `v3` was promoted, so
+  Gemini gates automatically again and 7-day retention has resumed; see the merge note under
+  `qa/collect_ground_truth.py` below for why labels survive that)**: while it was set,
+  `filter_job()` skips the Gemini call entirely (title/location/language filters still run) so
+  every job that clears them reaches the dashboard as `'new'` - this closes the biggest blind spot
+  in the applied/deleted signal, since a job Gemini would score `fit=false` normally never reaches
+  the dashboard at all and so could never be applied/deleted on. Also makes `db.cleanup_old_rows()`
+  skip the `new`/`deleted`/`rejected` retention rules (7 days), so labels aren't auto-deleted
+  before `qa/collect_ground_truth.py` can use them. Flip back to `False` once enough labels have
+  accumulated (see that script's printed count).
+- **`qa/purge_filtered_rows.py`** (one-off, already run once): deletes existing `new`/`deleted`/
+  `rejected` rows that today's title/location filters would reject - run once when the location
+  filter and the "field role" title pattern were added, since older `deleted` rows predating those
+  (and predating some now-standard seniority/manager patterns too) would otherwise contaminate the
+  ground truth with "Gemini got this wrong" labels for jobs actually rejected for an unrelated
+  reason. Reuses `title_filter`/`location_filter` directly rather than a separately-maintained
+  pattern list. Leaves `applied`/`process` rows alone even if they match (real decisions, not
+  noise). 379 of 696 checked rows were purged the first time it ran (most were old `'rejected'`
+  rows already outside the ground-truth set - only `'deleted'` rows actually move the accuracy
+  numbers, and 36 of 90 of those matched).
+- **`qa/collect_ground_truth.py`**: extracts `qa/data/ground_truth.json` from the DB per the labels
+  above; safe to re-run anytime as more accumulate. **Merges into the existing snapshot instead of
+  overwriting it**: with retention back on, `deleted` rows are auto-cleaned after 7 days, so the DB
+  is no longer a complete record of past labels - entries whose row has been cleaned are kept, and
+  entries whose row still exists but changed status (e.g. Restore -> `new`) are dropped. Re-run it
+  periodically to keep banking new applied/deleted labels for future prompt experiments. **The
+  snapshot (`qa/data/ground_truth.json`) and the per-job scores keyed to it
+  (`qa/data/prompt_eval_results.json`) are gitignored on purpose**: they record which jobs were applied
+  to and deleted, and the GitHub repo is public. Only the aggregate `prompt_eval_report.json` is
+  committed. A fresh clone rebuilds them locally with `qa/collect_ground_truth.py` + `qa/prompt_eval.py`.
+- **`qa/rescreen_new_jobs.py`** (one-off, run at promotion time): jobs scraped while
+  `COLLECTING_GROUND_TRUTH` was on reached the dashboard un-screened, so this ran the production filter
+  over every `status='new'` row and moved rejects to `'rejected'`. Non-destructive - rows are kept, with
+  Gemini's one-line reason stored in `reason` (the normal pipeline stores none) for spot-checking - and
+  it only touches rows still `'new'` at update time.
+- **`qa/prompt_variants.py`**: candidate `SYSTEM_INSTRUCTION` rewrites to score. Each entry is
+  `{"instruction": ..., "judge_background": bool}` - `judge_background` tells `classify()` which
+  request schema to use (see below).
+  - `current` (production baseline), `shortened` (same rules, trimmed repetition), `fewshot`
+    (short rule + 3 labeled examples instead of prose), `quote_first` (asks the model to quote the
+    relevant sentence before estimating years).
+  - `quote_first_background`: adds a second independent judgment, `relevant_background` (does the
+    role's core discipline actually match what the candidate wants - SWE/data/ML/product-PM
+    tracks - vs. a different profession entirely). Added after real usage data showed most false
+    positives weren't years-of-experience mistakes at all: jobs like Business Intelligence
+    Analyst, Application Engineer, Solution Architect, Pre-Sales Engineer, Industrial Engineer
+    routinely have a fine (low/no) years requirement but are the wrong profession, and the
+    years-only prompt was never asked to judge that dimension. `relevant_background` is
+    deliberately permissive (defaults true when ambiguous or technical-adjacent), matching the
+    same lean-permissive stance as the years judgment.
+  - `quote_first_background_v2` folds an "employer explicitly says less-experienced candidates are
+    welcome" carve-out into `years_estimate` (recovers the recall `quote_first_background` lost);
+    `quote_first_background_v3` caps that carve-out to modest requirements (~2-4 years) after v2
+    was seen zeroing out a 15-year requirement on generic "exceptional candidates considered"
+    boilerplate, and calls Business Intelligence out as not-data-engineering.
+  - Every variant's measured scores live in a `# SCORES [...]` comment block above its prompt in
+    `qa/prompt_variants.py` (355 jobs, scored 2026-09-19): `quote_first_background_v3` is best -
+    recall 1.000, precision 0.309, accuracy 0.786, ~1255 tokens/call - vs `quote_first` (1.000 /
+    0.241 / 0.699, ~948) and `current` (0.971 / 0.237 / 0.699, ~1120). Precision 0.31 is still far
+    from 0.50: what remains are mostly legitimate SWE/AI roles deleted for reasons a job
+    description can't reveal (company, tech-stack interest, gut feel).
+  - `qa/prompt_eval.py --variant NAME` scores a single variant on its own (repeatable flag).
+  - **Follow-up round after reviewing what v3 hid in production** (user feedback: data analyst is CS
+    work while BI is industrial-engineering work; and two hidden jobs carrying "requirement is flexible"
+    wording should have been shown). `v4` fixed the analyst reasoning but not the exception - prose can't
+    force the model to lower its own number. `v5` moved the exception into code
+    (`classify(judge_flexibility=True)`: the model reports `experience_flexible`, Python applies it up to
+    `config.MAX_YEARS_WITH_FLEXIBLE_REQUIREMENT = 4`), and it works on the two target jobs. **But v5 is
+    NOT promoted**: on 357 jobs it scores recall 0.971 vs v3's 1.000 (loses one applied CRM-flavoured
+    AI role to a "CRM/billing" example added to the business-side list), precision a wash
+    (0.306 vs 0.309), +12% tokens. **v3 remains the production prompt.** Re-running the disagreeing jobs
+    showed ~3 of 10 flip between identical runs, i.e. differences of a few jobs on a 357-job set are
+    within noise - judge a candidate on stable flips and on recall, not on a headline precision delta.
+    Note also that the years-only data-analyst worry was overstated: every hidden Data Analyst job also
+    required 2-3 years and would have been hidden by the years rule regardless.
+- **`gemini_filter.classify(..., judge_background=False)`**: when `True`, requests
+  `BackgroundJudgment`/`VerboseBackgroundJudgment` (`years_estimate` + `relevant_background`, no
+  `fit` field at all) instead of the normal schema, and derives
+  `fit = years_estimate <= MAX_YEARS_EXPERIENCE and relevant_background` **in Python**, never
+  asking the model for the combined boolean. This is a direct fix for a real bug `qa/prompt_eval.py`
+  found: `current`/`shortened`/`fewshot` all sometimes output `years_estimate=1` (at the exact
+  `MAX_YEARS_EXPERIENCE` cutoff) yet `fit=False` anyway - the model's own `fit` field can silently
+  disagree with its own extracted number. `quote_first`'s explicit step-by-step derivation reduced
+  this (recall 1.00 vs `current`'s 0.97 on real data) but still asks the model to state `fit`
+  itself; `judge_background=True` removes that risk entirely for the dimensions it covers, by
+  never asking for `fit` at all.
+- **`qa/prompt_eval.py`**: scores every variant against `ground_truth.json`, saving each
+  `(variant, job)` result incrementally to `qa/data/prompt_eval_results.json` (same crash-safety
+  pattern as `qa/build_review.py`'s `stage2.json` - resumable, skips already-scored pairs).
+  Primary metric is **recall on the "should show" class** (minimize false negatives, per the
+  lean-permissive filtering stance), not raw accuracy; reports a Wilson 95% CI on recall so a small
+  gap between variants can be read as noise given the sample size actually available; token count
+  is the secondary/tiebreaker axis. Writes a ranked comparison to `qa/data/prompt_eval_report.json`.
+  `--limit N` scores only the first N labeled jobs, for a quick smoke test.
+  - **Why precision/accuracy are unreliable here, concretely**: on a 348-job real run, `quote_first`
+    scored recall=1.00 but precision=0.23 (confusion matrix tp=34, fn=0, fp=112, tn=202) - the 112
+    false positives are mostly `deleted` jobs the model was still right to call `fit=true` on
+    (years-wise), deleted for an unrelated reason (company/location/interest, or - before
+    `quote_first_background` - wrong profession entirely). Precision/accuracy conflate "wrong
+    about years" with "right about years, wrong about everything else," which is why they're
+    secondary metrics, not the ones prompt changes are judged on.
+  - First real result (348 jobs, 34 positive, after `COLLECTING_GROUND_TRUTH` had gathered enough
+    post-bypass data to actually exercise the blind spot): `quote_first` recall=1.00 (0 misses),
+    `current` recall=0.97 (missed one job at the exact `years_estimate=1` boundary - the bug
+    above), `shortened`/`fewshot` recall=0.91 each (both let the "don't infer seniority from
+    qualitative language alone" guardrail lapse when they trimmed it - confirmed on a real miss:
+    `shortened` output `years_estimate=0` but `fit=False` anyway, reasoning about a "Senior AI
+    Engineer" title that shouldn't have influenced the years-only decision at all).
 
 ## Step 3 - Storage and dedup (SQLite)
 `jobs` table:
@@ -296,6 +455,9 @@ A permanent, checked-in QA tool for manually auditing the filter pipeline - sepa
 never imported by the production path (`pipeline.py`/`db.py`/`app.py`), but built entirely from
 the same shared modules (`scraper.py`, `filters/*`) via normal imports, so a fix to the title
 filter or the Gemini prompt applies to both automatically with nothing to keep in sync by hand.
+(`qa/collect_ground_truth.py`, `qa/prompt_variants.py`, `qa/prompt_eval.py`, and
+`qa/purge_filtered_rows.py` are the prompt-eval project's tooling - see "Prompt-engineering
+evaluation" above.)
 
 - `qa/build_review.py` - the one entry point:
   - `python qa/build_review.py` - reuses the frozen dataset in `qa/data/frozen_test_scrape.csv`

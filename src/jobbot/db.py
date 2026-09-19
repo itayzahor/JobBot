@@ -3,6 +3,7 @@
 import hashlib
 import sqlite3
 
+from jobbot import config
 from jobbot.paths import DB_PATH
 
 SCHEMA = """
@@ -125,6 +126,19 @@ def insert_job(conn: sqlite3.Connection, job: dict, status: str = "new") -> bool
     return True
 
 
+def get_recent_for_dedup(conn: sqlite3.Connection, hours: int = 24) -> list[sqlite3.Row]:
+    """Rows first seen within the last `hours` hours - candidates for pipeline.py's cross-run
+    fuzzy dedup, which catches a duplicate whose sibling site was scraped in an earlier run (see
+    scraper.is_same_posting). Bounded to a short lookback since the sibling copy you'd actually
+    hit is almost certainly recent - not worth fuzzy-comparing against a whole week of history.
+    """
+    conn.row_factory = sqlite3.Row
+    return conn.execute(
+        "SELECT id, company, title, description FROM jobs WHERE first_seen >= datetime('now', ?)",
+        (f"-{hours} hours",),
+    ).fetchall()
+
+
 def update_status(conn: sqlite3.Connection, job_id: str, status: str) -> None:
     conn.execute(
         "UPDATE jobs SET status = ?, status_changed_at = datetime('now') WHERE id = ?",
@@ -207,6 +221,11 @@ def cleanup_old_rows(conn: sqlite3.Connection) -> int:
     """
     total_deleted = 0
     for status, days in _CLEANUP_RULES.items():
+        # While gathering ground truth for prompt-engineering experiments (see
+        # qa/prompt_eval.py), skip cleanup for statuses that hold the labels being collected -
+        # applied's rule is left alone since it's irrelevant to this and far off (90d) anyway.
+        if config.COLLECTING_GROUND_TRUTH and status in ("new", "deleted", "rejected"):
+            continue
         cursor = conn.execute(
             """
             DELETE FROM jobs

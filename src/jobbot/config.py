@@ -40,3 +40,19 @@ SCRAPE_INTERVAL_HOURS = 6
 
 # Step 2 filtering criterion: accept jobs requiring at most this many years of experience.
 MAX_YEARS_EXPERIENCE = 1
+
+# Only used by the flexibility-aware schema (gemini_filter.classify(judge_flexibility=True)): when a
+# posting itself says its stated years number isn't strict ("flexible for exceptional builders"), a
+# requirement up to this many years is still shown. A cap, not a rule of thumb the model applies: a
+# 15-year posting carrying generic "exceptional candidates considered" boilerplate must stay hidden.
+MAX_YEARS_WITH_FLEXIBLE_REQUIREMENT = 4
+
+# Ground-truth collection mode for the prompt-engineering evaluation project (see qa/prompt_eval.py).
+# While True: filter_job() skips the Gemini call so every job that clears title/location/language
+# filtering reaches the dashboard as 'new', and db.cleanup_old_rows() skips the new/deleted/rejected
+# retention rules - real apply/delete decisions on that wider pool become human-labeled ground truth.
+# Turned OFF (2026-09-19) when quote_first_background_v3 was promoted to the production prompt: Gemini
+# now gates automatically again and retention resumes. Labels are safe from that retention because
+# qa/collect_ground_truth.py merges into qa/data/ground_truth.json - run it now and then to keep
+# banking new applied/deleted labels. Flip back to True to collect an unfiltered pool again.
+COLLECTING_GROUND_TRUTH = False

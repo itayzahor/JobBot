@@ -12,3 +12,8 @@ __pycache__/
 *.log
 # qa/data/ is the permanent, checked-in frozen test dataset - exempt from the blanket *.csv rule.
 !qa/data/*.csv
+
+# Personal job-search data: which jobs were applied to / deleted (the prompt-eval labels) and the per-job
+# scores keyed to them. Kept local - the GitHub repo is public. Rebuild with qa/collect_ground_truth.py.
+qa/data/ground_truth.json
+qa/data/prompt_eval_results.json

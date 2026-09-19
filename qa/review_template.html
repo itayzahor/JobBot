@@ -343,7 +343,7 @@
   </button>
   <button class="stage-pill" id="pill-title" onclick="setStage('title')">
     <div class="num">Lens</div>
-    <div class="label">Regex on title</div>
+    <div class="label">Regex on title/location</div>
   </button>
   <button class="stage-pill" id="pill-gemini" onclick="setStage('gemini')">
     <div class="num">Lens</div>
@@ -366,14 +366,15 @@
   const JOBS = __JOBS_DATA__;
   let stage = 'all';
 
-  // Title-filter lens: derived from stage2.status. If status is 'excluded_title', the title
-  // filter is what stopped it. Anything else (excluded_language, gemini_*, error) means the
-  // pipeline got past the title filter, so by construction the title check passed.
+  // Title/location-filter lens: derived from stage2.status. 'excluded_title' or
+  // 'excluded_location' means one of those two cheap Pass-0 checks stopped it. Anything else
+  // (excluded_language, gemini_*, error) means the pipeline got past both, so by construction
+  // they passed.
   function titleVerdict(j) {
-    if (j.stage2.status === 'excluded_title') {
+    if (j.stage2.status === 'excluded_title' || j.stage2.status === 'excluded_location') {
       return { badge: 'excluded', label: 'Excluded', reason: j.stage2.reason };
     }
-    return { badge: 'good', label: 'Passed', reason: 'Title check passed' };
+    return { badge: 'good', label: 'Passed', reason: 'Title/location check passed' };
   }
 
   const GEMINI_META = {
@@ -388,8 +389,8 @@
       subhead: 'One frozen JobSpy scrape, zero filtering applied — this is exactly what the scraper found.',
     },
     title: {
-      title: 'Scrape QA — Regex on title',
-      subhead: 'Only the title filter’s verdict — ignores language and Gemini entirely, so you can judge title matching in isolation.',
+      title: 'Scrape QA — Regex on title/location',
+      subhead: 'Only the title and location filters’ verdict — ignores language and Gemini entirely, so you can judge title/location matching in isolation.',
     },
     gemini: {
       title: 'Scrape QA — Gemini',
@@ -438,7 +439,7 @@
         <div class="stat"><div class="value">${JOBS.filter(j => (j.site||'').toLowerCase()==='indeed').length}</div><div class="label">Indeed</div></div>
       `;
     } else if (stage === 'title') {
-      const excluded = JOBS.filter(j => j.stage2.status === 'excluded_title').length;
+      const excluded = JOBS.filter(j => j.stage2.status === 'excluded_title' || j.stage2.status === 'excluded_location').length;
       row.innerHTML = `
         <div class="stat bad"><div class="value">${excluded}</div><div class="label">Excluded</div></div>
         <div class="stat good"><div class="value">${JOBS.length - excluded}</div><div class="label">Passed</div></div>

@@ -70,11 +70,24 @@ _SIMILARITY_THRESHOLD = 0.97
 _SITE_PREFERENCE = {"linkedin": 0, "indeed": 1}
 
 
-def _dedup_key(text) -> str:
+def dedup_key(text) -> str:
     if not isinstance(text, str):
         return ""
     text = _NON_WORD_PATTERN.sub("", text)
     return _WHITESPACE_PATTERN.sub(" ", text).strip().lower()
+
+
+def is_same_posting(description_a: str, description_b: str) -> bool:
+    """Fuzzy-match two descriptions for the same underlying posting (see _dedup_cross_site).
+
+    Exposed (not just used internally) so pipeline.py can run the same check against jobs already
+    in the DB from an earlier run - _dedup_cross_site only compares rows scraped together in one
+    run, so it can't catch a duplicate whose sibling site was scraped a day earlier or later.
+    """
+    key_a, key_b = dedup_key(description_a), dedup_key(description_b)
+    if abs(len(key_a) - len(key_b)) > 50:  # cheap skip before the real comparison
+        return False
+    return SequenceMatcher(None, key_a, key_b).ratio() >= _SIMILARITY_THRESHOLD
 
 
 # Indeed's date filter works in day-level buckets, not hours - anything under 24h reliably
@@ -151,9 +164,9 @@ def _dedup_cross_site(df: pd.DataFrame) -> pd.DataFrame:
     LinkedIn "Tel Aviv-Yafo" would never string-match Indeed's "תל אביב -יפו" for the same job.
     """
     df = df.reset_index(drop=True)
-    keys = df["description"].apply(_dedup_key)
+    descriptions = df["description"]
     companies = df["company"].fillna("").str.lower()
-    titles = df["title"].apply(_dedup_key)
+    titles = df["title"].apply(dedup_key)
 
     parent = list(range(len(df)))
 
@@ -173,9 +186,7 @@ def _dedup_cross_site(df: pd.DataFrame) -> pd.DataFrame:
         for i in range(len(idxs)):
             for j in range(i + 1, len(idxs)):
                 a, b = idxs[i], idxs[j]
-                if abs(len(keys[a]) - len(keys[b])) > 50:  # cheap skip before the real comparison
-                    continue
-                if SequenceMatcher(None, keys[a], keys[b]).ratio() >= _SIMILARITY_THRESHOLD:
+                if is_same_posting(descriptions[a], descriptions[b]):
                     union(a, b)
 
     clusters: dict[int, list[int]] = {}

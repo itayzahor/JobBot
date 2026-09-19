@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from jobbot.filters.gemini_filter import classify
 from jobbot.filters.language_filter import is_allowed_language
+from jobbot.filters.location_filter import get_exclusion_reason as get_location_exclusion_reason
 from jobbot.filters.title_filter import get_exclusion_reason
 from jobbot.scraper import scrape_all
 
@@ -67,10 +68,14 @@ def classify_all() -> None:
 
         title = row["title"]
         description = row["description"]
+        location = row["location"]
 
         title_reason = get_exclusion_reason(title)
+        location_reason = get_location_exclusion_reason(location)
         if title_reason is not None:
             stage2[i] = {"status": "excluded_title", "reason": f"Title filtered: {title_reason}", "min_years": None}
+        elif location_reason is not None:
+            stage2[i] = {"status": "excluded_location", "reason": f"Location filtered: {location_reason}", "min_years": None}
         elif not is_allowed_language(description):
             stage2[i] = {"status": "excluded_language", "reason": "Description is not in Hebrew or English", "min_years": None}
         else:
