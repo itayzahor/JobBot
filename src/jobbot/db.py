@@ -147,6 +147,28 @@ def update_status(conn: sqlite3.Connection, job_id: str, status: str) -> None:
     conn.commit()
 
 
+def expire_old_new_jobs(conn: sqlite3.Connection, max_age_days: int) -> int:
+    """Move 'new' jobs posted more than max_age_days ago (by date_posted, falling back to
+    first_seen when the source gave no date) to 'rejected'. Returns how many were moved.
+
+    'rejected', not 'deleted': the user never actually looked at these and turned them down, so
+    they mustn't show up on /deleted or count as a "didn't want it" label in
+    qa/collect_ground_truth.py. Keeping the row (rather than DELETE-ing it) also keeps its dedup
+    memory, so a still-live posting isn't re-scraped as new; normal 7-day retention removes it later.
+    """
+    cursor = conn.execute(
+        """
+        UPDATE jobs
+        SET status = 'rejected', status_changed_at = datetime('now'), reason = ?
+        WHERE status = 'new'
+        AND COALESCE(date_posted, date(first_seen)) < date('now', 'localtime', ?)
+        """,
+        (f"Expired: posted more than {max_age_days} days ago", f"-{max_age_days} days"),
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
 def update_notes(conn: sqlite3.Connection, job_id: str, notes: str) -> None:
     """Free-text notes, meaningful only for 'process' rows - what happened in the interview
     process, why it failed, etc. Doesn't touch status_changed_at (editing a note isn't a status

@@ -34,6 +34,13 @@ RESULTS_WANTED_PER_TERM = 200  # ceiling, not a target - JobSpy stops once a ter
 # there - it's testing against a frozen dataset, not tracking real elapsed time).
 HOURS_OLD = 24
 
+# Jobs posted more than this many days ago aren't worth seeing - by then they've usually been
+# flooded with applicants. Caps the gap-widened scrape window above (a 3-week vacation shouldn't
+# pull in 3 weeks of stale postings), and every pipeline run clears 'new' jobs older than this off
+# the dashboard (db.expire_old_new_jobs). The dashboard's "Clear older than N days" button is the
+# manual, any-N version of the same thing.
+MAX_JOB_AGE_DAYS = 4
+
 # pipeline.py self-throttles to roughly this often when invoked via Task Scheduler every 15 min -
 # see scrape_state.py and pipeline.run().
 SCRAPE_INTERVAL_HOURS = 6

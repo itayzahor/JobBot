@@ -76,6 +76,21 @@
 
         .scrape-btn:hover { opacity: 0.85; }
 
+        .clear-old {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .clear-old input {
+            width: 3.5rem;
+            padding: 0.3rem 0.4rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.82rem;
+            color: var(--text);
+        }
+
         .scrape-btn:disabled {
             cursor: default;
             opacity: 0.6;
@@ -296,6 +311,13 @@
             <button class="scrape-btn" type="submit" {% if scraping %}disabled{% endif %}>
                 {{ 'Scraping…' if scraping else 'Scrape Now' }}
             </button>
+        </form>
+        <form method="post" action="{{ url_for('clear_old') }}" class="clear-old"
+              onsubmit="return confirm('Hide every new job posted more than ' + this.days.value + ' days ago?');">
+            <span>Clear jobs older than</span>
+            <input type="number" name="days" min="0" value="{{ default_max_age_days }}" required>
+            <span>days</span>
+            <button class="scrape-btn" type="submit">Clear</button>
         </form>
     </div>
 

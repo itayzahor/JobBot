@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from flask import Flask, redirect, render_template, request, url_for
 from markupsafe import Markup, escape
 
-from jobbot import db, pipeline, scrape_state
+from jobbot import config, db, pipeline, scrape_state
 
 app = Flask(__name__)
 
@@ -101,7 +101,13 @@ def dashboard():
     jobs = _enrich(db.get_new_jobs(conn))
     conn.close()
     last_scraped = _format_time_ago(scrape_state.get_last_scrape_time())
-    return render_template("dashboard.html", jobs=jobs, last_scraped=last_scraped, scraping=_scraping_in_progress)
+    return render_template(
+        "dashboard.html",
+        jobs=jobs,
+        last_scraped=last_scraped,
+        scraping=_scraping_in_progress,
+        default_max_age_days=config.MAX_JOB_AGE_DAYS,
+    )
 
 
 @app.route("/deleted")
@@ -139,6 +145,20 @@ def scrape_now():
     if not _scraping_in_progress:
         _scraping_in_progress = True
         threading.Thread(target=_run_scrape_in_background, daemon=True).start()
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/clear_old", methods=["POST"])
+def clear_old():
+    """Manual, any-N version of the automatic config.MAX_JOB_AGE_DAYS expiry pipeline.run() does -
+    e.g. after a vacation, clearing the backlog down to just the last few days."""
+    try:
+        days = max(0, int(request.form.get("days", "")))
+    except ValueError:
+        return redirect(url_for("dashboard"))
+    conn = db.get_connection()
+    db.expire_old_new_jobs(conn, days)
+    conn.close()
     return redirect(url_for("dashboard"))
 
 

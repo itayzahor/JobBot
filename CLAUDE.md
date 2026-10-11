@@ -44,8 +44,10 @@ handles the `--log-to-file` redirect (now writing to `logs/`) before delegating.
 - `scrape_all(hours_old_override=None)` - the base window is normally `config.HOURS_OLD`, but
   `pipeline.py` overrides it with the actual elapsed time since the last successful scrape (see
   `scrape_state.py` under Scheduling) so a gap - computer asleep/off - widens the window to cover
-  what was posted during it, instead of the fixed default silently missing it. JobSpy's `hours_old`
-  is int-only, so a fractional override is rounded UP, never down.
+  what was posted during it, instead of the fixed default silently missing it. That widening is
+  capped at `config.MAX_JOB_AGE_DAYS` (4) days - after a long absence (a 3-week vacation), postings
+  older than that aren't wanted anyway. JobSpy's `hours_old` is int-only, so a fractional override
+  is rounded UP, never down.
 - **Real posting dates, patched at import time**: JobSpy's LinkedIn parser only looks for
   `<time class="job-search-card__listdate">`, but confirmed via raw HTML comparison that setting
   `hours_old` (which we always do) makes LinkedIn render the exact same date under
@@ -383,6 +385,14 @@ new one. One-time seed when this was introduced: `applied_count` was initialized
 existing data - older rows that had already been through the pre-existing weekly-equivalent cleanup
 by that point, if any, aren't recoverable, but none had at that point in practice).
 
+**Stale-job expiry**: `db.expire_old_new_jobs(conn, days)` moves `'new'` rows posted more than
+`days` ago (`date_posted`, falling back to `first_seen`) to `'rejected'`, with
+`reason = "Expired: posted more than N days ago"`. `pipeline.run()` calls it with
+`config.MAX_JOB_AGE_DAYS` (4) at the end of every run; the dashboard's "Clear jobs older than [N]
+days" form (`POST /clear_old`) calls it with whatever N the user types. `'rejected'` rather than
+`'deleted'` on purpose: the user never looked at these, so they must not appear on `/deleted` or
+become "didn't want it" ground-truth labels, and keeping the row keeps its dedup memory.
+
 **Retention**: `db.cleanup_old_rows()`, called once at the end of every `pipeline.run()`,
 permanently `DELETE`s rows per `db._CLEANUP_RULES` - a per-status day threshold, not one blanket
 number: `new`/`deleted`/`rejected` at 7 days, `applied` at 90 days (long enough that an open
@@ -437,6 +447,8 @@ record.
     available, so the display always has something rather than a blank when a source lacks the
     data. Computed in the `/` route (`dict(row)` + a `posted_display` key) rather than in the
     template, since Jinja doesn't parse dates.
+- A "Clear jobs older than [N] days" form (`POST /clear_old`, defaults to `config.MAX_JOB_AGE_DAYS`,
+  asks for confirmation) - see "Stale-job expiry" in Step 3.
 - A "Last scraped: X ago" line and a "Scrape Now" button (`POST /scrape`) let the user trigger a
   scrape on demand instead of waiting for the next scheduled one - see Scheduling below for how
   this interacts with the automatic schedule. Runs in a background thread (`threading.Thread`) so
@@ -529,7 +541,14 @@ whether that invocation actually ends up scraping.
   overlap is a few duplicate Gemini calls on whatever job both happened to pick up, not a crash.
 - **Covering a long gap**: `hours_since_last_scrape()` is passed into `scraper.scrape_all` as
   `hours_old_override`, so a run after a 2-day gap asks for a ~48h window instead of the normal
-  ~6h one, catching what was posted during the gap. Known limit: `RESULTS_WANTED_PER_TERM` (200) is
+  ~6h one, catching what was posted during the gap - capped at `config.MAX_JOB_AGE_DAYS` (4 days).
+- **A run that crashes never updates `scrape_state.json`**, so the next run retries with an even
+  wider window - this is how a single NaN `company` value (pandas' missing value is a truthy float,
+  so `row.get("company") or ""` didn't catch it) silently broke every scrape from 2026-09-23 to
+  2026-10-11 while the dashboard just showed "Last scraped: 18 days ago". Fixed with
+  `pipeline._text()` for every scraped text field, plus a per-row try/except in `pipeline.run()` so
+  one bad row is logged and skipped instead of sinking the run. If "Last scraped" ever looks stale
+  again, check `logs/pipeline.log` / `logs/app.log` for a traceback first. Known limit: `RESULTS_WANTED_PER_TERM` (200) is
   a ceiling, not unbounded - an extremely long gap could in principle have more than 200 new
   postings for one search term, in which case only the most recent 200 are captured. Not solved
   (would need real backfill/pagination beyond the ceiling); acceptable given how rare a multi-day
