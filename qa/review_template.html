@@ -319,6 +319,18 @@
     overflow-y: auto;
   }
 
+  .desc strong {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .desc .desc-heading {
+    display: inline-block;
+    margin-top: 0.5rem;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
   .empty-state {
     text-align: center;
     padding: 3rem 1rem;
@@ -522,7 +534,7 @@
         ${verdictHtml}
         <details>
           <summary>Description</summary>
-          <div class="desc">${escapeHtml(j.description)}</div>
+          <div class="desc">${formatDescription(j.description)}</div>
         </details>
       `;
       list.appendChild(div);
@@ -533,6 +545,18 @@
     return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
   function escapeAttr(s) { return escapeHtml(s); }
+
+  // Job descriptions are literal Markdown (LinkedIn/Indeed both write postings that way), but
+  // were being dumped as plain escaped text - so "**Requirements**" showed up with literal
+  // asterisks instead of as a bolded heading. Not a full Markdown renderer: escape first (the
+  // text is scraped from external sites), then re-add just enough HTML for bold/headers/bullets.
+  function formatDescription(s) {
+    let text = escapeHtml(s);
+    text = text.replace(/^#{1,6}\s*(.+)$/gm, '<span class="desc-heading">$1</span>');
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/^[*\-•]\s+/gm, '• ');
+    return text;
+  }
 
   document.getElementById('search').addEventListener('input', e => render(e.target.value));
   document.getElementById('status-filter').addEventListener('change', () => render(document.getElementById('search').value));

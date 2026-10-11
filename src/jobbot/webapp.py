@@ -4,14 +4,34 @@ The CLI entry point (--log-to-file, app.run(...)) lives in the thin app.py shim 
 root, not here - see that file for why it stays at the root.
 """
 
+import re
 import threading
 from datetime import date, datetime, timezone
 
 from flask import Flask, redirect, render_template, request, url_for
+from markupsafe import Markup, escape
 
 from jobbot import db, pipeline, scrape_state
 
 app = Flask(__name__)
+
+# Job descriptions come back from JobSpy as literal Markdown (LinkedIn/Indeed both write postings
+# in it), but templates used to dump them as plain escaped text - so "**Requirements**" rendered
+# with literal asterisks around it instead of as a bolded heading. This isn't a full Markdown
+# renderer: escape first (the text is scraped from external sites, so it's untrusted), then
+# re-introduce just enough HTML for bold text, headers, and bullets to read like the source intended.
+_DESC_HEADER_RE = re.compile(r"^#{1,6}\s*(.+)$", re.MULTILINE)
+_DESC_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_DESC_BULLET_RE = re.compile(r"^[*\-•]\s+", re.MULTILINE)
+
+
+@app.template_filter("format_description")
+def format_description(text: str | None) -> Markup:
+    formatted = str(escape(text or ""))
+    formatted = _DESC_HEADER_RE.sub(r'<span class="desc-heading">\1</span>', formatted)
+    formatted = _DESC_BOLD_RE.sub(r"<strong>\1</strong>", formatted)
+    formatted = _DESC_BULLET_RE.sub("• ", formatted)
+    return Markup(formatted)
 
 # In-memory guard against a double-click (or an overlapping scheduled run) starting two scrapes
 # at once - SQLite tolerates concurrent writers with brief lock waits, but there's no reason to

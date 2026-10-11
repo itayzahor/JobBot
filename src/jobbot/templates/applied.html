@@ -175,6 +175,18 @@
             margin-top: 0.6rem;
         }
 
+        .desc strong {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .desc .desc-heading {
+            display: inline-block;
+            margin-top: 0.5rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
         .actions {
             margin-top: 1rem;
             display: flex;
@@ -248,7 +260,7 @@
         </div>
         <details>
             <summary>Description</summary>
-            <div class="desc">{{ job.description }}</div>
+            <div class="desc">{{ job.description|format_description }}</div>
         </details>
         <div class="actions">
             <form method="post" action="{{ url_for('interview', job_id=job.id) }}">
