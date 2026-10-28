@@ -462,6 +462,32 @@ record.
   since the computer needs to be on regardless for any of this to run, a pull-based dashboard the
   user opens when they want is simpler than maintaining a push-notification bot for no real gain.
 
+## MCP server (`mcp_server.py` -> `src/jobbot/mcp_server.py`)
+Exposes the jobs DB to an LLM client (Claude Desktop / Claude Code) over stdio, so the user can say
+"I have an interview Wednesday with Wix" in chat and the model calls the tools itself.
+- SDK is `mcp` **2.x**: `FastMCP` is now `mcp.server.mcpserver.MCPServer`. Anticipated failures
+  must raise `ToolError` - any other exception is treated as a crash and its message is hidden
+  from the model (it only sees "Error executing tool X").
+- Tools: `search_jobs`, `get_job`, `mark_applied`, `move_to_process`, `add_note`, `get_stats`,
+  `get_profile`; prompt: `interview_prep(company, stage)`; resource: `profile://me`. Job tools
+  wrap `db.py`, so status rules match the dashboard.
+- **Candidate profile** (`data/profile.md`, gitignored - personal, repo is public; path override
+  `JOBBOT_PROFILE_PATH`): the user's master record - skills with honest levels, every project,
+  home assignments, courses, interview stories. Exposed both as a resource (user-attached in
+  Claude Desktop) and as the `get_profile` tool (model-fetched - Claude Desktop doesn't let the
+  model read resources on its own). It is the source of truth for future resume tailoring:
+  select and rephrase from it, never add. Drafted from the resumes + transcript in the user's
+  Google Drive "Job Search" folder; the national ID on the transcript is deliberately left out.
+  `move_to_process` on a not-yet-applied job (applied outside the dashboard) calls `mark_applied`
+  first, so the applied counter is incremented exactly once per job on every path.
+- Notes are appended with a date stamp, never overwritten. Interview prep stays in the chat, not
+  in `notes` (per user decision), so notes remain the user's own record.
+- Nothing in the server may print to stdout - stdout is the protocol channel.
+- `qa/test_mcp_server.py` spawns the server as a subprocess like Claude Desktop does and checks
+  every tool against a throwaway DB (`JOBBOT_DB_PATH` env override in `paths.py`).
+- Claude Desktop here is the Microsoft Store build: its config is at
+  `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json`.
+
 ## Test tooling (`qa/`)
 A permanent, checked-in QA tool for manually auditing the filter pipeline - separate from and
 never imported by the production path (`pipeline.py`/`db.py`/`app.py`), but built entirely from
