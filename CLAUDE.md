@@ -469,14 +469,17 @@ Exposes the jobs DB to an LLM client (Claude Desktop / Claude Code) over stdio, 
   must raise `ToolError` - any other exception is treated as a crash and its message is hidden
   from the model (it only sees "Error executing tool X").
 - Tools: `search_jobs`, `get_job`, `mark_applied`, `move_to_process`, `add_note`, `get_stats`,
-  `get_profile`; prompt: `interview_prep(company, stage)`; resource: `profile://me`. Job tools
+  `get_profile`, `suggest_profile_update`; prompt: `interview_prep(company, stage)`; resource: `profile://me`. Job tools
   wrap `db.py`, so status rules match the dashboard.
 - **Candidate profile** (`data/profile.md`, gitignored - personal, repo is public; path override
   `JOBBOT_PROFILE_PATH`): the user's master record - skills with honest levels, every project,
   home assignments, courses, interview stories. Exposed both as a resource (user-attached in
   Claude Desktop) and as the `get_profile` tool (model-fetched - Claude Desktop doesn't let the
   model read resources on its own). It is the source of truth for future resume tailoring:
-  select and rephrase from it, never add. Drafted from the resumes + transcript in the user's
+  select and rephrase from it, never add. `suggest_profile_update` lets the model capture
+  new facts from chats, but only into an append-only "Pending review" section at the end - it never
+  edits the rest, and `get_profile` tells the model pending items are unverified (never resume
+  material) until the user moves them in by hand. Drafted from the resumes + transcript in the user's
   Google Drive "Job Search" folder; the national ID on the transcript is deliberately left out.
   `move_to_process` on a not-yet-applied job (applied outside the dashboard) calls `mark_applied`
   first, so the applied counter is incremented exactly once per job on every path.

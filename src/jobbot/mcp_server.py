@@ -223,8 +223,40 @@ def get_profile() -> str:
     projects in detail, home assignments, courses, target roles, and interview stories. Use it to
     judge fit for a job, prepare interviews, or pick which projects to highlight. It is the source
     of truth: never attribute a skill or experience to the user that isn't in it. Lines marked
-    TODO are unknown - ask rather than assume."""
+    TODO are unknown - ask rather than assume. Items under "Pending review" are unverified
+    notes: fine as context, but never use them on a resume or state them as fact."""
     return _read_profile()
+
+
+_PENDING_HEADER = "## Pending review"
+_PENDING_INTRO = (
+    "Facts noted during chats, not yet verified. Move what's accurate into the right section "
+    "above and delete the line - nothing here is used on a resume until then."
+)
+
+
+@mcp.tool()
+def suggest_profile_update(fact: str, source: str = "") -> str:
+    """Note a new fact about the user for their profile, e.g. a skill they used, an interview
+    outcome, a project detail. Only record what the user actually said in this conversation, in
+    their terms - never an inference, a guess, or an upgrade of a skill level. It goes into a
+    "Pending review" section the user checks by hand; it never edits the rest of the profile.
+    `source` is optional context, e.g. "Wix interview prep chat"."""
+    if not fact.strip():
+        raise ToolError("fact is empty")
+    text = PROFILE_PATH.read_text(encoding="utf-8") if PROFILE_PATH.exists() else ""
+    line = f"- [{date.today().isoformat()}] {fact.strip()}" + (f" (source: {source.strip()})" if source.strip() else "")
+
+    if _PENDING_HEADER not in text:
+        text = f"{text.rstrip()}\n\n{_PENDING_HEADER}\n{_PENDING_INTRO}\n\n{line}\n"
+    else:
+        # Insert at the end of the Pending section, even if the user added sections after it.
+        start = text.index(_PENDING_HEADER)
+        next_section = text.find("\n## ", start + len(_PENDING_HEADER))
+        end = len(text) if next_section == -1 else next_section
+        text = f"{text[:end].rstrip()}\n{line}\n{text[end:]}"
+    PROFILE_PATH.write_text(text, encoding="utf-8")
+    return "Noted under 'Pending review' in the profile - the user will verify it."
 
 
 # --- Resources ---

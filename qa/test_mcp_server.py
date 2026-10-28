@@ -88,7 +88,7 @@ async def main() -> None:
         print("Discovery (what Claude sees when it connects):")
         tools = {t.name for t in (await session.list_tools()).tools}
         expected = {"search_jobs", "get_job", "mark_applied", "move_to_process", "add_note", "get_stats",
-                    "get_profile"}
+                    "get_profile", "suggest_profile_update"}
         check(tools == expected, f"tools listed: {sorted(tools)}")
         prompts = {p.name for p in (await session.list_prompts()).prompts}
         check(prompts == {"interview_prep"}, f"prompts listed: {sorted(prompts)}")
@@ -100,6 +100,17 @@ async def main() -> None:
         check("chess-vision" in profile, "get_profile returns the profile file")
         resource = await session.read_resource("profile://me")
         check("chess-vision" in resource.contents[0].text, "profile://me resource returns it too")
+
+        print("suggest_profile_update:")
+        await session.call_tool("suggest_profile_update", {"fact": "Used LangChain in a course", "source": "test"})
+        await session.call_tool("suggest_profile_update", {"fact": "Interviewed at Wix"})
+        text = TEST_PROFILE.read_text(encoding="utf-8")
+        check(text.startswith("# Test Candidate\n- Built a chess-vision app"), "existing profile untouched")
+        check(text.count("## Pending review") == 1, "one Pending review section")
+        check("Used LangChain in a course (source: test)" in text and "Interviewed at Wix" in text,
+              "both suggestions saved")
+        empty = await session.call_tool("suggest_profile_update", {"fact": "  "})
+        check(empty.is_error, "empty fact rejected")
 
         print("search_jobs:")
         wix = payload(await session.call_tool("search_jobs", {"company": "wix"}))
