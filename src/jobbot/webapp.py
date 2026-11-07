@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 from flask import Flask, redirect, render_template, request, url_for
 from markupsafe import Markup, escape
 
-from jobbot import config, db, pipeline, scrape_state
+from jobbot import config, db, gmail_suggestions, pipeline, scrape_state
 
 app = Flask(__name__)
 
@@ -137,6 +137,69 @@ def processes():
     jobs = _enrich(db.get_jobs(conn, ["process"]))
     conn.close()
     return render_template("processes.html", jobs=jobs)
+
+
+# What an Inbox card's Accept button will do, in the user's words
+_ACTION_LABELS = {
+    "mark_applied": "Mark as applied",
+    "to_process": "Move to Process",
+    "close": "Close - rejected",
+    "add_note": "Add note",
+    "add_job": "Add to JobBot",
+    "none": "",
+}
+
+
+@app.context_processor
+def _inbox_count():
+    """Number of Inbox cards waiting, shown on the nav bar of every page."""
+    conn = db.get_connection()
+    count = sum(card.visible for card in gmail_suggestions.build_cards(conn))
+    conn.close()
+    return {"inbox_count": count}
+
+
+@app.route("/inbox")
+def inbox():
+    # Cards are built fresh on every view from each job's current status - see gmail_suggestions
+    conn = db.get_connection()
+    cards = [c for c in gmail_suggestions.build_cards(conn) if c.visible]
+    conn.close()
+    return render_template("inbox.html", cards=cards, action_labels=_ACTION_LABELS)
+
+
+@app.route("/inbox/<action>", methods=["POST"])
+def inbox_resolve(action):
+    """Accept or dismiss one card. The card is looked up again by key and its action recomputed
+    here - the form only says which card, never what to do."""
+    conn = db.get_connection()
+    card = next((c for c in gmail_suggestions.build_cards(conn) if c.key == request.form.get("key")), None)
+    if card is not None:
+        if action == "accept":
+            gmail_suggestions.apply_card(conn, card)
+        elif action == "dismiss":
+            db.resolve_suggestions(conn, [e["email_id"] for e in card.emails], "dismissed")
+    conn.close()
+    return redirect(url_for("inbox"))
+
+
+@app.route("/closed")
+def closed():
+    # 'closed' = rejected by the company before any interview (usually accepted from the Inbox)
+    conn = db.get_connection()
+    jobs = _enrich(db.get_jobs(conn, ["closed"]))
+    conn.close()
+    return render_template("closed.html", jobs=jobs)
+
+
+@app.route("/reopen/<job_id>", methods=["POST"])
+def reopen(job_id):
+    """Undo a close (e.g. a wrong guess on an ambiguous email) - back to 'applied'. The job was
+    already counted when it became applied, so the counter isn't touched."""
+    conn = db.get_connection()
+    db.update_status(conn, job_id, "applied")
+    conn.close()
+    return _redirect_back(default="closed")
 
 
 @app.route("/scrape", methods=["POST"])

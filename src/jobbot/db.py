@@ -31,12 +31,37 @@ CREATE TABLE IF NOT EXISTS jobs (
 # query treats that as equivalent to first_seen via COALESCE, which is also the semantically
 # correct fallback (if status was never touched, its own creation time is when it "last changed").
 
-# One consolidated lifecycle: 'new' -> 'deleted' (user rejects it) or 'applied' (user applies) or
-# it's screened out before ever reaching the user ('rejected'); 'applied' -> 'process' once an
-# interview process actually starts. There's no separate terminal "closed" status anymore - a
-# process that fails is recorded via the `notes` field on the same 'process' row (see below)
-# rather than a status transition, per explicit user request to track "how did it go" as text, not
-# as another state.
+# Lifecycle: 'new' -> 'deleted' (user rejects it) or 'applied' (user applies) or it's screened out
+# before ever reaching the user ('rejected'); 'applied' -> 'process' once an interview process
+# actually starts, or 'applied' -> 'closed' when the company rejects the application before any
+# interview (set from the Gmail Inbox). A *process* that fails stays 'process' and is recorded in
+# the `notes` field instead, per explicit user request to track "how did it go" as text.
+# One row per application email the Gmail agent processed (unrelated mail is never stored). The
+# Inbox groups these into one card per job and derives the proposed action at display time from
+# the job's *current* status (gmail_suggestions.py), so nothing here goes stale if the user changes
+# the job by hand in the meantime. job_ids is a JSON list: one id for a match, all candidates for an
+# ambiguous one, empty for not_in_db.
+_EMAIL_SUGGESTIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS email_suggestions (
+    email_id TEXT PRIMARY KEY,
+    thread_id TEXT,
+    received TEXT NOT NULL,
+    sender TEXT,
+    subject TEXT,
+    evidence TEXT,
+    type TEXT NOT NULL,
+    company TEXT,
+    role TEXT,
+    job_reference TEXT,
+    match TEXT NOT NULL,
+    job_ids TEXT NOT NULL DEFAULT '[]',
+    match_reason TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    resolved_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
 _META_SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
@@ -55,6 +80,7 @@ _CLEANUP_RULES = {
     "deleted": 7,
     "rejected": 7,
     "applied": 90,
+    "closed": 90,
 }
 
 
@@ -75,9 +101,11 @@ def get_connection() -> sqlite3.Connection:
     for column in ("reason", "site", "date_posted", "status_changed_at", "notes"):
         if column not in existing_columns:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} TEXT")
-    # One-off, idempotent migration: the old 'interviewing'/'closed' statuses collapsed into a
-    # single 'process' status. Runs on every connection but is a no-op once nothing matches.
-    conn.execute("UPDATE jobs SET status = 'process' WHERE status IN ('interviewing', 'closed')")
+    # One-off, idempotent migration: the old 'interviewing' status collapsed into 'process'. It
+    # used to fold 'closed' in too, but 'closed' is a live status again (an application rejected
+    # before any interview - set by the Gmail Inbox), so it must not be rewritten here.
+    conn.execute("UPDATE jobs SET status = 'process' WHERE status = 'interviewing'")
+    conn.execute(_EMAIL_SUGGESTIONS_SCHEMA)
     conn.commit()
     return conn
 
@@ -259,3 +287,50 @@ def cleanup_old_rows(conn: sqlite3.Connection) -> int:
         total_deleted += cursor.rowcount
     conn.commit()
     return total_deleted
+
+
+def insert_email_suggestion(conn: sqlite3.Connection, s: dict) -> bool:
+    """Store one processed application email. Returns False if it was already stored (the Gmail
+    agent re-reads a small overlap window, so the same email can come through twice)."""
+    cursor = conn.execute(
+        """
+        INSERT OR IGNORE INTO email_suggestions (email_id, thread_id, received, sender, subject,
+            evidence, type, company, role, job_reference, match, job_ids, match_reason)
+        VALUES (:email_id, :thread_id, :received, :sender, :subject, :evidence, :type, :company,
+            :role, :job_reference, :match, :job_ids, :match_reason)
+        """,
+        s,
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
+def get_pending_suggestions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Every email still waiting in the Inbox, oldest first (grouping relies on that order)."""
+    conn.row_factory = sqlite3.Row
+    return conn.execute(
+        "SELECT * FROM email_suggestions WHERE status = 'pending' ORDER BY received"
+    ).fetchall()
+
+
+def resolve_suggestions(conn: sqlite3.Connection, email_ids: list[str], status: str) -> None:
+    """Mark Inbox emails 'accepted' or 'dismissed' so they leave the Inbox."""
+    conn.executemany(
+        "UPDATE email_suggestions SET status = ?, resolved_at = datetime('now') WHERE email_id = ?",
+        [(status, email_id) for email_id in email_ids],
+    )
+    conn.commit()
+
+
+def insert_job_from_email(conn: sqlite3.Connection, email_id: str, company: str, title: str, url: str) -> str:
+    """Create a job row for an application made outside JobBot (company site, referral), found in
+    Gmail. The id is derived from the email, so accepting the same card twice can't duplicate it.
+    The row starts as 'new' - the caller moves it to its real status through the normal
+    functions, so the applied counter is handled in one place. Returns the job id."""
+    job_id = hash_url(f"gmail:{email_id}")
+    conn.execute(
+        "INSERT OR IGNORE INTO jobs (id, title, company, url, site, status) VALUES (?, ?, ?, ?, 'gmail', 'new')",
+        (job_id, title, company, url),
+    )
+    conn.commit()
+    return job_id

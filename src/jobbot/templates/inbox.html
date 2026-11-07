@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JobBot Dashboard</title>
+    <style>
+        :root {
+            --bg: #f4f5f7;
+            --card: #ffffff;
+            --border: #e5e7eb;
+            --text: #1a1d23;
+            --muted: #6b7280;
+            --accent: #4f46e5;
+            --accent-soft: #eef2ff;
+            --green: #16a34a;
+            --green-soft: #ecfdf3;
+            --red: #dc2626;
+            --red-soft: #fef2f2;
+            --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            max-width: 780px;
+            margin: 0 auto;
+            padding: 2.5rem 1.25rem 4rem;
+        }
+
+        header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: -0.01em;
+        }
+
+        .count {
+            color: var(--muted);
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        .nav {
+            display: flex;
+            gap: 1.25rem;
+            margin-bottom: 1.25rem;
+            font-size: 0.9rem;
+        }
+
+        .nav a {
+            color: var(--muted);
+            text-decoration: none;
+            font-weight: 600;
+            padding-bottom: 0.3rem;
+            border-bottom: 2px solid transparent;
+        }
+
+        .nav a:hover { color: var(--accent); }
+
+        .nav-count {
+            display: inline-block;
+            min-width: 1.3rem;
+            padding: 0 0.35rem;
+            border-radius: 999px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 0.72rem;
+            text-align: center;
+        }
+
+        .nav a.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .job {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1.25rem 1.4rem;
+            margin-bottom: 0.9rem;
+            box-shadow: var(--shadow);
+            transition: box-shadow 0.15s ease;
+        }
+
+        .job:hover {
+            box-shadow: 0 2px 6px rgba(16, 24, 40, 0.08), 0 4px 10px rgba(16, 24, 40, 0.06);
+        }
+
+        .job h2 {
+            margin: 0 0 0.15rem;
+            font-size: 1.08rem;
+            font-weight: 650;
+        }
+
+        .job h2 .company {
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        .meta {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.4rem;
+            margin: 0.5rem 0 0.85rem;
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.15rem 0.55rem;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            background: var(--accent-soft);
+            color: var(--accent);
+        }
+
+        .badge.site {
+            background: var(--bg);
+            color: var(--muted);
+            border: 1px solid var(--border);
+            text-transform: uppercase;
+            font-size: 0.72rem;
+            letter-spacing: 0.03em;
+        }
+
+        .dot {
+            color: var(--border);
+        }
+
+        .meta a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .meta a:hover {
+            text-decoration: underline;
+        }
+
+        details summary {
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--muted);
+            list-style: none;
+            user-select: none;
+        }
+
+        details summary::-webkit-details-marker { display: none; }
+
+        details summary::before {
+            content: "▸ ";
+            display: inline-block;
+        }
+
+        details[open] summary::before {
+            content: "▾ ";
+        }
+
+        .desc {
+            max-height: 220px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-size: 0.88rem;
+            line-height: 1.5;
+            background: var(--bg);
+            color: var(--text);
+            padding: 0.75rem 0.9rem;
+            border-radius: 8px;
+            margin-top: 0.6rem;
+        }
+
+        .desc strong {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .desc .desc-heading {
+            display: inline-block;
+            margin-top: 0.5rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .actions {
+            margin-top: 1rem;
+            display: flex;
+            gap: 0.6rem;
+        }
+
+        form { margin: 0; }
+
+        button {
+            padding: 0.45rem 1rem;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.15s ease;
+        }
+
+        button:hover { opacity: 0.85; }
+
+        .apply, .restore, .interview {
+            background: var(--green-soft);
+            color: var(--green);
+            border-color: rgba(22, 163, 74, 0.15);
+        }
+
+        .delete {
+            background: var(--red-soft);
+            color: var(--red);
+            border-color: rgba(220, 38, 38, 0.15);
+        }
+
+        .empty {
+            text-align: center;
+            padding: 4rem 1rem;
+            color: var(--muted);
+        }
+
+        .empty .icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .empty p {
+            font-size: 1rem;
+            margin: 0;
+        }
+    
+        .badge.action { background: var(--green-soft); color: var(--green); }
+        .badge.status { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+        .badge.guess { background: #fff7ed; color: #c2410c; }
+        .evidence {
+            margin: 0.2rem 0 0.6rem;
+            padding: 0.55rem 0.8rem;
+            border-left: 3px solid var(--accent);
+            background: var(--accent-soft);
+            border-radius: 0 8px 8px 0;
+            font-size: 0.9rem;
+            unicode-bidi: plaintext;
+        }
+        .emails { list-style: none; padding: 0; margin: 0.6rem 0 0; font-size: 0.83rem; color: var(--muted); }
+        .emails li { padding: 0.15rem 0; unicode-bidi: plaintext; }
+        .emails a { color: var(--accent); text-decoration: none; }
+        .note-preview { white-space: pre-wrap; font-size: 0.82rem; color: var(--muted); margin-top: 0.5rem; unicode-bidi: plaintext; }
+        .dismiss { background: var(--bg); color: var(--muted); border-color: var(--border); }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>JobBot</h1>
+        <span class="count">{{ cards|length }} suggestion{{ '' if cards|length == 1 else 's' }} from Gmail</span>
+    </header>
+
+    <nav class="nav">
+        <a href="{{ url_for('dashboard') }}">New</a>
+        <a href="{{ url_for('inbox') }}" class="active">Inbox{% if inbox_count %} <span class="nav-count">{{ inbox_count }}</span>{% endif %}</a>
+        <a href="{{ url_for('applied') }}">Applied</a>
+        <a href="{{ url_for('processes') }}">Processes</a>
+        <a href="{{ url_for('closed') }}">Closed</a>
+        <a href="{{ url_for('deleted') }}">Deleted</a>
+    </nav>
+
+    {% for card in cards %}
+    {% set latest = card.latest %}
+    <div class="job">
+        {% if card.job %}
+        <h2>{{ card.job.title }} — <span class="company">{{ card.job.company }}</span></h2>
+        {% elif latest.type == 'recruiter_outreach' %}
+        <h2>Recruiter outreach — <span class="company">{{ latest.company or latest.sender }}</span></h2>
+        {% else %}
+        <h2>{{ latest.role or '(role not stated)' }} — <span class="company">{{ latest.company or '(company not stated)' }}</span></h2>
+        {% endif %}
+        <div class="meta">
+            {% if card.action != 'none' %}<span class="badge action">{{ action_labels[card.action] }}{% if card.action == 'add_job' %} as {{ card.new_status }}{% endif %}</span>{% endif %}
+            {% if card.job %}<span class="badge status">now: {{ card.job.status }}</span>
+            {% elif latest.type != 'recruiter_outreach' %}<span class="badge status">not in JobBot</span>{% endif %}
+            {% if card.guessed_between %}<span class="badge guess">guess - {{ card.guessed_between|length }} possible jobs</span>{% endif %}
+        </div>
+        {% if latest.evidence %}<div class="evidence">{{ latest.evidence }}</div>{% endif %}
+        <ul class="emails">
+            {% for e in card.emails|reverse %}
+            <li>{{ e.received[:10] }} · {{ e.type.replace('_', ' ') }} ·
+                <a href="https://mail.google.com/mail/u/0/#all/{{ e.thread_id }}" target="_blank" rel="noopener">{{ e.subject }}</a></li>
+            {% endfor %}
+        </ul>
+        {% if card.notes %}
+        <details>
+            <summary>Note that Accept will add</summary>
+            <div class="note-preview">{{ card.notes|join('
+') }}</div>
+        </details>
+        {% endif %}
+        <div class="actions">
+            {% if card.action != 'none' %}
+            <form method="post" action="{{ url_for('inbox_resolve', action='accept') }}">
+                <input type="hidden" name="key" value="{{ card.key }}">
+                <button class="apply" type="submit">Accept</button>
+            </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('inbox_resolve', action='dismiss') }}">
+                <input type="hidden" name="key" value="{{ card.key }}">
+                <button class="dismiss" type="submit">Dismiss</button>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty">
+        <div class="icon">📬</div>
+        <p>Nothing from Gmail needs a decision.</p>
+    </div>
+    {% endfor %}
+</body>
+</html>

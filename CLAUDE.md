@@ -294,14 +294,13 @@ is Gemini's own verdict, useless as ground truth).
   gap between variants can be read as noise given the sample size actually available; token count
   is the secondary/tiebreaker axis. Writes a ranked comparison to `qa/data/prompt_eval_report.json`.
   `--limit N` scores only the first N labeled jobs, for a quick smoke test.
-  - **Why precision/accuracy are unreliable here, concretely**: on a 348-job real run, `quote_first`
-    scored recall=1.00 but precision=0.23 (confusion matrix tp=34, fn=0, fp=112, tn=202) - the 112
-    false positives are mostly `deleted` jobs the model was still right to call `fit=true` on
+  - **Why precision/accuracy are unreliable here, concretely**: on the first real run `quote_first`
+    scored recall=1.00 but precision=0.23 - the false positives are mostly `deleted` jobs the model was still right to call `fit=true` on
     (years-wise), deleted for an unrelated reason (company/location/interest, or - before
     `quote_first_background` - wrong profession entirely). Precision/accuracy conflate "wrong
     about years" with "right about years, wrong about everything else," which is why they're
     secondary metrics, not the ones prompt changes are judged on.
-  - First real result (348 jobs, 34 positive, after `COLLECTING_GROUND_TRUTH` had gathered enough
+  - First real result (after `COLLECTING_GROUND_TRUTH` had gathered enough
     post-bypass data to actually exercise the blind spot): `quote_first` recall=1.00 (0 misses),
     `current` recall=0.97 (missed one job at the exact `years_estimate=1` boundary - the bug
     above), `shortened`/`fewshot` recall=0.91 each (both let the "don't infer seniority from
@@ -464,7 +463,7 @@ record.
 
 ## MCP server (`mcp_server.py` -> `src/jobbot/mcp_server.py`)
 Exposes the jobs DB to an LLM client (Claude Desktop / Claude Code) over stdio, so the user can say
-"I have an interview Wednesday with Wix" in chat and the model calls the tools itself.
+"I have an interview Wednesday with Acme" in chat and the model calls the tools itself.
 - SDK is `mcp` **2.x**: `FastMCP` is now `mcp.server.mcpserver.MCPServer`. Anticipated failures
   must raise `ToolError` - any other exception is treated as a crash and its message is hidden
   from the model (it only sees "Error executing tool X").
@@ -615,6 +614,83 @@ whether that invocation actually ends up scraping.
    Scheduler + a dashboard "Scrape Now" button - see Scheduling)
 5. Monitoring and improvement - tune the title filter/prompt based on real-world mistakes; the
    permanent `qa/` tool exists for exactly this
+
+## Gmail agent (built 2026-11)
+Reads new emails, recognizes ones about the user's applications, matches them to a job in the DB,
+and *suggests* the status update in an Inbox tab - the user accepts or dismisses each one. Never
+changes data on its own. **Personal results (counts, which companies, eval history) live in the
+gitignored `CLAUDE.local.md`, not here - the repo is public and the user doesn't want which jobs
+they apply to, or how many, to be visible. Keep real company names and counts out of committed
+files (code comments, prompt examples and tests use made-up companies).**
+- **Flow:** `gmail_agent.run()`: fetch new mail since the last check (`gmail_client`, Gmail API,
+  read-only scope) -> cheap pre-filter (`gmail_prefilter`, no AI: Promotions/Social, own sent mail,
+  job-alert senders, login/verification mail) -> classify (`gmail_classifier`, one Gemini call) ->
+  match to a job (`gmail_matcher`, the agent) -> store one `email_suggestions` row per application
+  email -> Inbox tab. Runs at the end of every real `pipeline.run()` scrape (lazy import, own
+  try/except - a Gmail failure never fails the scrape), or by hand via `scripts/gmail_run.py`.
+  Checkpoint `data/gmail_state.json` only advances when every email matched (one retry per email -
+  a network `httpx.ReadError` once killed a whole run). First run backfills 60 days.
+- **Stack:** LangGraph + Gemini (already billed) for the matching agent, calling the project's own
+  MCP server - the same tools serve Claude Desktop and this agent. Chosen partly because "agentic AI
+  frameworks" was a gap a recruiter pointed out; Claude Agent SDK would need a separate Anthropic API
+  account. **No `langchain-mcp-adapters`**: it pins `mcp<2`, and installing it silently downgraded the
+  SDK and broke the server (mcp 2.x API); `gmail_matcher.mcp_tools()` does the MCP -> LangChain tool
+  wrapping in ~20 lines instead.
+- **Classifier:** one structured Gemini call -> `evidence` (the decisive sentence, quoted first -
+  same trick as the job filter), `type` (confirmation / rejection / interview_invite /
+  home_assignment / recruiter_outreach / other_update / unrelated), `company` (the employer, never
+  the ATS that sent it - Comeet, Workday, Greenhouse...), `role`, `job_reference` (requisition ids,
+  for telling same-company applications apart). Shares `gemini_filter`'s client/throttle (one API
+  key, one rate limit). Strips quoted reply history first (`strip_quoted`) - a real miss judged a
+  reply by the text it quoted. Hebrew emails name companies in Hebrew; the eval accepts `|` aliases.
+- **Matching agent:** LangGraph loop `agent -> tools -> agent`, ending when the model calls
+  `submit_match` (`tool_choice="any"`, so it never answers in free text; recursion limit 16). Talks
+  to `mcp_server.py` over stdio with an **allowlist of read tools** (`search_jobs`, `get_job`) - it
+  cannot write. Prompt rules that mattered: a date rule (the user marks a job applied the day they
+  apply, so an email can't be about an applied job dated days after it - reposts of the same role
+  are common), a job reference in the posting beats dates and titles, try the English name for a
+  Hebrew one. `recruiter_outreach` skips matching in code. Answers `job` / `ambiguous` (+ all
+  candidates) / `not_in_db`. Verified to work under `pythonw` (the scheduled path spawns the MCP
+  server with no console).
+- **What Accept does** (`gmail_suggestions.py`, pure rules, built **at display time** from each
+  job's current status so a card never proposes something stale; Accept recomputes the card
+  server-side - the form only carries its key):
+  | Email | job `new`/`deleted` | job `applied` | job `process` |
+  |---|---|---|---|
+  | confirmation | -> applied (+counter) | nothing | nothing |
+  | interview invite / home assignment | -> applied, then process | -> process + note | append note |
+  | rejection | -> closed | -> closed | append dated note |
+  | recruiter outreach | shown in Inbox, no DB action | | |
+- **Decisions:**
+  1. Rejection of a not-yet-interviewed application -> **`closed`** status (own tab), so Applied
+     only shows applications still waiting on an answer. Rejection of a `process` row is a dated note
+     only. Applied counter untouched either way. `closed` is a live status again - the old
+     per-connection migration that folded `closed` into `process` was narrowed to `interviewing`
+     only, or every close would have been silently undone.
+  2. Emails about a job not in the DB (applied on a company site / referral) -> **"Add to JobBot"**
+     with company/role from the email (id = hash of `gmail:<message_id>`, `site='gmail'`), so the
+     counter and tabs cover every application. An outside application that ever had an interview or
+     home task is added as `process` (a later rejection becomes a note, per decision 1).
+  3. **One card per job:** a job's pending emails are grouped; the card proposes one change from the
+     latest status-bearing email. Outside applications group by Gmail thread, or same company with a
+     compatible role (one outside application had split into several cards, and accepting each
+     would have created duplicates).
+  4. **Ambiguous match -> act on the oldest application, don't ask.** When an email fits several
+     applications at one company and nothing in it says which, the card targets the one applied to
+     first - companies tend to answer in order. The model only reports `ambiguous` + candidates;
+     Python picks the oldest (same split as `fit` in the job filter), skipping ones already closed.
+     The note records that it was a guess, but only when the card changes a status. "Ambiguous"
+     between duplicate scrapes of one posting is treated as a plain match. Not built yet: auto-swap
+     when an interview arrives for a job closed by guess - use Reopen on the Closed tab.
+- **Eval tooling (`qa/`):** `gmail_dataset.py` (save pre-filtered mail with bodies),
+  `label_emails.py` (port 5001, review labels), `gmail_eval.py` (classifier), `gmail_match_eval.py`
+  (matcher, fed the classifier's saved output so the two are scored separately), and
+  `test_gmail_suggestions.py` (every Accept rule against a throwaway DB). Data and labels are
+  `qa/data/gmail_*.json` - gitignored (personal mail).
+- **Gotchas:** Google OAuth apps left in "Testing" mode lose their refresh token after 7 days - the
+  app is published "In production" (unverified is fine for personal use; Google requires a homepage
+  and privacy-policy URL for that, hence `PRIVACY.md`). Token/credentials files live in gitignored
+  `data/`.
 
 ## Rejected: Secret Hunter (secrethunter.io)
 Investigated as an extra source; not pursued. Its `/jobs/search` endpoint has no public API - the

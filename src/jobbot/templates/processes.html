@@ -68,6 +68,17 @@
 
         .nav a:hover { color: var(--accent); }
 
+        .nav-count {
+            display: inline-block;
+            min-width: 1.3rem;
+            padding: 0 0.35rem;
+            border-radius: 999px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 0.72rem;
+            text-align: center;
+        }
+
         .nav a.active {
             color: var(--accent);
             border-bottom-color: var(--accent);
@@ -277,9 +288,11 @@
 
     <nav class="nav">
         <a href="{{ url_for('dashboard') }}">New</a>
-        <a href="{{ url_for('deleted') }}">Deleted</a>
+        <a href="{{ url_for('inbox') }}">Inbox{% if inbox_count %} <span class="nav-count">{{ inbox_count }}</span>{% endif %}</a>
         <a href="{{ url_for('applied') }}">Applied</a>
         <a href="{{ url_for('processes') }}" class="active">Processes</a>
+        <a href="{{ url_for('closed') }}">Closed</a>
+        <a href="{{ url_for('deleted') }}">Deleted</a>
     </nav>
 
     {% for job in jobs %}

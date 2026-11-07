@@ -1,7 +1,7 @@
 """MCP server exposing the jobs DB to an LLM client (Claude Desktop, Claude Code, ...).
 
 The client talks to this process over stdin/stdout and decides on its own which tools to call -
-"I have an interview Wednesday with Wix" becomes search_jobs -> move_to_process. Every tool is a
+"I have an interview Wednesday with Acme" becomes search_jobs -> move_to_process. Every tool is a
 thin wrapper around db.py, so the dashboard and this server always apply the same status rules
 (notably: the persistent applied counter is incremented exactly once per job, whichever path
 marks it).
@@ -33,11 +33,11 @@ mcp = MCPServer(
     ),
 )
 
-_STATUSES = ("new", "applied", "process", "deleted", "rejected")
+_STATUSES = ("new", "applied", "process", "closed", "deleted", "rejected")
 
-# Jobs the user has engaged with sort first in search results - when someone says "the Wix job",
+# Jobs the user has engaged with sort first in search results - when someone says "the Acme job",
 # they almost always mean one they applied to, not one of a dozen unseen 'new'/'rejected' rows.
-_STATUS_RANK = "CASE status WHEN 'process' THEN 0 WHEN 'applied' THEN 1 WHEN 'new' THEN 2 ELSE 3 END"
+_STATUS_RANK = "CASE status WHEN 'process' THEN 0 WHEN 'applied' THEN 1 WHEN 'closed' THEN 2 WHEN 'new' THEN 3 ELSE 4 END"
 
 
 def _connect() -> sqlite3.Connection:
@@ -93,7 +93,8 @@ def search_jobs(
     - company / title: match the company name or job title.
     - keyword: match anywhere in the job description (e.g. "RAG", "Kubernetes").
     - status: one of new (on the dashboard, not acted on), applied, process (active or finished
-      interview process), deleted (user dismissed it), rejected (auto-filtered, never shown).
+      interview process), closed (the company rejected the application before any interview),
+      deleted (user dismissed it), rejected (auto-filtered, never shown).
 
     Returns short summaries (no description) - call get_job for the full posting and notes.
     Results are ordered process, applied, new, then the rest; most recent first within each.
@@ -241,7 +242,7 @@ def suggest_profile_update(fact: str, source: str = "") -> str:
     outcome, a project detail. Only record what the user actually said in this conversation, in
     their terms - never an inference, a guess, or an upgrade of a skill level. It goes into a
     "Pending review" section the user checks by hand; it never edits the rest of the profile.
-    `source` is optional context, e.g. "Wix interview prep chat"."""
+    `source` is optional context, e.g. "Acme interview prep chat"."""
     if not fact.strip():
         raise ToolError("fact is empty")
     text = PROFILE_PATH.read_text(encoding="utf-8") if PROFILE_PATH.exists() else ""

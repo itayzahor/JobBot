@@ -77,8 +77,18 @@ def run(force: bool = False, hours_old: int | None = None) -> None:
         f"{counts['dupe']} skipped (already in DB), "
         f"{counts['error']} skipped (error), "
         f"{expired} new jobs expired (older than {config.MAX_JOB_AGE_DAYS}d), "
-        f"{cleaned_up} stale rows cleaned up (new/deleted/rejected @7d, applied @90d)"
+        f"{cleaned_up} stale rows cleaned up (new/deleted/rejected @7d, applied/closed @90d)"
     )
+
+    # The Gmail agent rides on the same schedule. Imported here, not at the top, so the frequent
+    # throttled no-op runs above never pay for loading LangGraph; and a Gmail failure (expired
+    # login, network) must never look like a failed scrape.
+    try:
+        from jobbot import gmail_agent
+
+        gmail_agent.run()
+    except Exception as e:
+        print(f"Gmail agent failed: {type(e).__name__}: {e}")
 
 
 def _process_row(conn, row, recent_candidates: dict[tuple[str, str], list[tuple[str, str]]]) -> str:

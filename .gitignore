@@ -17,3 +17,9 @@ __pycache__/
 # scores keyed to them. Kept local - the GitHub repo is public. Rebuild with qa/collect_ground_truth.py.
 qa/data/ground_truth.json
 qa/data/prompt_eval_results.json
+
+# Gmail agent eval data: real email content and the labels keyed to it - personal, repo is public.
+qa/data/gmail_*.json
+
+# Private project notes for Claude (counts, real companies, eval history) - repo is public.
+CLAUDE.local.md
