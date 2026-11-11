@@ -14,6 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TEST_DB = Path(tempfile.mkdtemp()) / "jobs.db"
 os.environ["JOBBOT_DB_PATH"] = str(TEST_DB)  # before importing jobbot - never touch the real DB
+# mark_applied freezes the job's resume (resume/job_resumes.py) - keep that out of the real data/ too.
+os.environ["JOBBOT_RESUME_DIR"] = str(TEST_DB.parent / "resume")
 sys.path.insert(0, str(ROOT / "src"))
 
 from jobbot import db, gmail_suggestions  # noqa: E402

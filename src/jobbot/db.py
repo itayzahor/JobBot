@@ -2,6 +2,7 @@
 
 import hashlib
 import sqlite3
+import sys
 
 from jobbot import config
 from jobbot.paths import DB_PATH
@@ -228,6 +229,7 @@ def mark_applied(conn: sqlite3.Connection, job_id: str) -> None:
     update_status(conn, job_id, "applied")
     _adjust_applied_count(conn, 1)
     conn.commit()
+    _resume_hook("freeze", job_id)
 
 
 def undo_applied(conn: sqlite3.Connection, job_id: str) -> None:
@@ -235,6 +237,21 @@ def undo_applied(conn: sqlite3.Connection, job_id: str) -> None:
     update_status(conn, job_id, "new")
     _adjust_applied_count(conn, -1)
     conn.commit()
+    _resume_hook("unfreeze", job_id)
+
+
+def _resume_hook(action: str, job_id: str) -> None:
+    """Freeze the job's resume as "sent" on apply / unlock it on undo (resume/job_resumes.py).
+    Here, in the one function every apply path uses, so none can skip it. Lazy import (the resume
+    package imports db) and never fatal: a resume problem must not fail recording the application."""
+    try:
+        from jobbot.resume import job_resumes
+
+        getattr(job_resumes, action)(job_id)
+    except Exception as e:
+        # stderr, never stdout: db is also used inside the MCP server, where stdout is the protocol.
+        print(f"[warning] couldn't {action} the resume for job {job_id}: {type(e).__name__}: {e}",
+              file=sys.stderr)
 
 
 def get_jobs(conn: sqlite3.Connection, statuses: list[str]) -> list[sqlite3.Row]:

@@ -285,8 +285,9 @@
             <div class="desc">{{ job.description|format_description }}</div>
         </details>
         <div class="actions">
-            {% set rs = resume_status.get(job.id) %}
-            <a class="resume-btn {{ rs or '' }}" href="{{ url_for('resume.job_page', job_id=job.id) }}">{% if rs == 'approved' %}Resume ✓{% elif rs == 'draft' %}Resume (draft){% else %}Resume{% endif %}</a>
+            {% if resume_status.get(job.id) == 'sent' %}
+            <a class="resume-btn approved" href="{{ url_for('resume.job_page', job_id=job.id) }}">Resume sent</a>
+            {% endif %}
             <form method="post" action="{{ url_for('interview', job_id=job.id) }}">
                 <input type="hidden" name="next" value="applied">
                 <button class="interview" type="submit">Move to Process</button>

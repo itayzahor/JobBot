@@ -22,6 +22,8 @@ TEST_PROFILE.write_text("# Test Candidate\n- Built a chess-vision app with YOLO.
 # Before importing jobbot, so paths.py picks them up - never touch the real DB/profile.
 os.environ["JOBBOT_DB_PATH"] = str(TEST_DB)
 os.environ["JOBBOT_PROFILE_PATH"] = str(TEST_PROFILE)
+# mark_applied freezes the job's resume (resume/job_resumes.py) - keep that out of the real data/ too.
+os.environ["JOBBOT_RESUME_DIR"] = str(TEST_DIR / "resume")
 sys.path.insert(0, str(ROOT / "src"))
 
 from mcp.client.session import ClientSession  # noqa: E402
@@ -80,7 +82,8 @@ async def main() -> None:
     ids = seed_db()
     wix_ai, wix_backend = ids["Wix/AI Engineer"], ids["Wix/Backend Developer"]
     server = StdioServerParameters(command=sys.executable, args=[str(ROOT / "mcp_server.py")],
-                                   env={"JOBBOT_DB_PATH": str(TEST_DB), "JOBBOT_PROFILE_PATH": str(TEST_PROFILE)})
+                                   env={"JOBBOT_DB_PATH": str(TEST_DB), "JOBBOT_PROFILE_PATH": str(TEST_PROFILE),
+                                        "JOBBOT_RESUME_DIR": str(TEST_DIR / "resume")})
 
     async with stdio_client(server) as (read, write), ClientSession(read, write) as session:
         await session.initialize()

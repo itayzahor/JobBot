@@ -794,9 +794,7 @@ can't tell when text overflows the page, and the Slides print path had lost the 
   its budget (that text is exactly 4 lines) - writing to length reads far better than cutting
   afterwards, which turned sentences into trait lists; `tailor._fit_about` measures both versions
   and only then asks the model to shorten (2 tries), as a safety net.
-- **User requirement, not built yet:** once a job is applied to, its resume is frozen - the version
-  that was sent, no more edits. Editing stays enabled on Applied cards *for now* only because the
-  agent is being tested on already-applied jobs; lock it (view-only "Resume sent") once testing ends.
+- **Resume lock - the version sent stays as sent** (built 2026-11-11, user requirement). `db.mark_applied` - the one function the dashboard's Apply, the MCP `mark_applied` and an Inbox Accept all use - calls `job_resumes.freeze()`: a saved/approved resume becomes `status='sent'`; with nothing saved, the main resume (what was actually sent) is copied in with its PDF. Idempotent. Gmail-found outside applications (`site='gmail'`) are never frozen - what was sent is unknown. `db.undo_applied` -> `unfreeze()` (an accidental Apply). The hook is a lazy import (resume imports db), never fatal, and warns to **stderr** (db runs inside the MCP server, where stdout is the protocol). A sent resume - or an applied job with nothing recorded (applied before this existed) - opens the read-only `resume_sent.html` (PDF preview + download); save and AI draft return 409. Applied/Processes cards show only "Resume sent". `paths.RESUME_DIR` honours `JOBBOT_RESUME_DIR` so tests never touch real resumes: `qa/test_resume_lock.py` (13 checks, made-up data), and `test_mcp_server.py` / `test_gmail_suggestions.py` now set it too (their mark_applied calls would otherwise freeze fake jobs into the real data/resume/jobs/).
 - **Tailoring agent** (`resume/tailor.py`, model `gemini-3.8-flash` - stronger than the filter's
   flash-lite, affordable since it runs once per click). Same split as the job filter: the model
   judges, Python decides. One structured call: `requirements` first (each quoted from the posting,

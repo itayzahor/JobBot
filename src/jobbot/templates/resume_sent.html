@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobBot - Resume sent to {{ record.job.company }}</title>
+<style>
+  :root { --bg: #f4f5f7; --card: #ffffff; --border: #e5e7eb; --text: #1a1d23; --muted: #6b7280;
+          --accent: #4f46e5; --accent-soft: #eef2ff; --green: #16a34a; --green-soft: #ecfdf3;
+          --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06); }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg);
+         color: var(--text); margin: 0; padding: 2rem 1.5rem 3rem; }
+  .top, .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+  .nav { display: flex; gap: 1.25rem; margin-bottom: 1.25rem; font-size: 0.9rem; }
+  .nav a { color: var(--muted); text-decoration: none; font-weight: 600; }
+  .nav a:hover { color: var(--accent); }
+  .nav-count { display: inline-block; min-width: 1.3rem; padding: 0 0.35rem; border-radius: 999px;
+               background: var(--accent); color: #fff; font-size: 0.72rem; text-align: center; }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 1.1rem 1.25rem;
+           box-shadow: var(--shadow); margin-bottom: 1rem; }
+  .panel h2 { font-size: 1.05rem; margin: 0 0 0.2rem; }
+  .company { color: var(--muted); font-weight: 500; }
+  .meta { font-size: 0.85rem; color: var(--muted); margin-top: 0.3rem; }
+  .meta a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .lock { background: var(--green-soft); color: var(--green); border-radius: 10px; padding: 0.6rem 0.8rem;
+          font-size: 0.88rem; margin-top: 0.8rem; }
+  .lock.none { background: var(--bg); color: var(--muted); }
+  .bar { display: flex; gap: 0.5rem; margin: 0.8rem 0 0; }
+  .bar a { padding: 0.4rem 0.9rem; border-radius: 8px; border: 1px solid var(--border); background: #fff;
+           font-size: 0.82rem; font-weight: 600; color: var(--text); text-decoration: none; }
+  .bar a:hover { border-color: var(--accent); color: var(--accent); }
+  iframe { width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>JobBot</h1>
+  <nav class="nav">
+    <a href="{{ url_for('dashboard') }}">New</a>
+    <a href="{{ url_for('inbox') }}">Inbox{% if inbox_count %} <span class="nav-count">{{ inbox_count }}</span>{% endif %}</a>
+    <a href="{{ url_for('applied') }}">Applied</a>
+    <a href="{{ url_for('processes') }}">Processes</a>
+    <a href="{{ url_for('closed') }}">Closed</a>
+    <a href="{{ url_for('deleted') }}">Deleted</a>
+    <a href="{{ url_for('resume.main_page') }}">Resume</a>
+  </nav>
+</div>
+<div class="wrap">
+  <div class="panel">
+    <h2>{{ record.job.title }} — <span class="company">{{ record.job.company }}</span></h2>
+    {% if record.job.url %}<div class="meta"><a href="{{ record.job.url }}" target="_blank" rel="noopener">Open posting ↗</a></div>{% endif %}
+    {% if sent %}
+    <div class="lock">🔒 This is the resume you sent with your application ({{ record.sent_source }},
+      {{ record.sent_at[:10] }}). It's locked so it stays exactly as sent.</div>
+    {% if has_pdf %}
+    <div class="bar">
+      <a href="{{ url_for('resume.job_pdf', job_id=record.job.id) }}" target="_blank">Open PDF</a>
+      <a href="{{ url_for('resume.job_pdf', job_id=record.job.id) }}?download=1">Download PDF</a>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="lock none">No resume was recorded for this application - it was applied to before
+      JobBot kept a copy of the resume sent with each application.</div>
+    {% endif %}
+  </div>
+  {% if has_pdf %}<iframe src="{{ url_for('resume.job_pdf', job_id=record.job.id) }}" title="Resume sent"></iframe>{% endif %}
+</div>
+</body>
+</html>

@@ -32,6 +32,7 @@ def _main_pdf_path() -> Path:
 def _resume_statuses():
     """{job_id: 'draft'|'approved'} for the Resume buttons on job cards - only on job-list pages."""
     if request.endpoint in ("dashboard", "applied", "processes", "closed", "deleted"):
+        # values: draft | approved | sent
         return {"resume_status": job_resumes.statuses()}
     return {"resume_status": {}}
 
@@ -139,9 +140,32 @@ def _job_record(job_id: str) -> dict:
     return job_resumes.new_record(job)
 
 
+_APPLIED_STATUSES = ("applied", "process", "closed")
+
+
+def _locked(job_id: str, record: dict) -> bool:
+    """A resume is read-only once sent - or when the job was applied to before resumes were kept
+    (nothing was recorded, and editing now would invent a version that was never sent)."""
+    if record.get("status") == "sent":
+        return True
+    job = job_resumes.job_from_db(job_id)
+    return bool(job and job.get("status") in _APPLIED_STATUSES)
+
+
+def _refuse_if_locked(job_id: str, record: dict):
+    if _locked(job_id, record):
+        return jsonify(ok=False, errors=["This resume was sent with your application - it can't be changed."],
+                       error="This resume was sent with your application - it can't be changed."), 409
+    return None
+
+
 @bp.route("/resume/job/<job_id>")
 def job_page(job_id):
     record = _job_record(job_id)
+    if _locked(job_id, record):
+        sent = record.get("status") == "sent"
+        return render_template("resume_sent.html", record=record, sent=sent,
+                               has_pdf=sent and job_resumes.pdf_path(job_id).exists())
     draft = job_resumes.load_draft(job_id)
     # Not saved yet but the agent drafted one: open with the draft in the editor (unsaved).
     selection = draft["selection"] if draft and not record["created_at"] else record["selection"]
@@ -156,6 +180,8 @@ def job_draft(job_id):
     from jobbot.resume import tailor  # lazy: pulls in the Gemini client only when used
 
     record = _job_record(job_id)
+    if (refused := _refuse_if_locked(job_id, record)):
+        return refused
     try:
         draft = tailor.draft_for_job(record["job"])
     except Exception as e:  # shown to the user - the editor keeps working without a draft
@@ -167,6 +193,8 @@ def job_draft(job_id):
 def job_save(job_id):
     """Save this job's resume. approve=true also marks it as the version to send."""
     record = _job_record(job_id)  # 404 before anything is written if the job doesn't exist
+    if (refused := _refuse_if_locked(job_id, record)):
+        return refused
     payload = request.get_json(force=True)
     selection = payload["selection"]
     blocks = content.load_blocks()
