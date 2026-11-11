@@ -704,11 +704,31 @@ can't tell when text overflows the page, and the Slides print path had lost the 
   real link annotation in the PDF (read back with pypdf), and Poppins actually loaded.
 - Fonts are bundled in `resume/fonts/` (OFL) and embedded base64, so rendering needs no network.
 - Slides' "115%" line spacing is relative to Poppins' tall natural line height - about 1.35 in CSS.
-- `scripts/render_resume.py <json> [-o out.pdf]` renders by hand. The user's real base resume is
-  `data/resume/base.json` (gitignored - personal); `resume/example_resume.json` is a made-up one.
+- **One source of resume content** (`resume/content.py`): `data/resume/blocks.json` holds every
+  approved block - fixed sections (contact, education, military, languages), About Me versions,
+  each project's approved bullets + title + link, and the skill pool. A resume (the main one,
+  `data/resume/main.json`, or a per-job one) is a *selection*: About Me text, chosen projects with
+  their bullets, sidebar skill groups. `assemble()` merges in the fixed blocks for rendering.
+  `check()` makes an unknown project or a skill outside the pool an **error**, and a bullet whose
+  wording isn't approved only a **warning** - the user may edit wording on purpose. All of
+  `data/resume/` is personal and gitignored.
+- **Resume tab** (`/resume`, `resume/web.py` blueprint + `templates/resume_main.html`): edits the
+  main resume. Editor on the left (About Me with a pick-a-saved-version dropdown; projects and
+  bullets added/removed/reordered; skill groups with chips from the pool only), live preview on the
+  right - the server fills the real template via the real `assemble()` on every change (debounced,
+  stale responses dropped), and the browser measures fit in the preview iframe the same way
+  `render.py` does ("Fits · N mm free" / "Too long by N mm"). **Save** re-checks server-side,
+  renders the PDF to a temp file first and only then replaces `main.json`/`main.pdf`, so a resume
+  that fails any check is never saved. **Editing a bullet on this page changes its approved wording**
+  in `blocks.json` (sent as `{project, old, new}` replacements, confirmed in a dialog) - main is
+  the master copy. Open/Download PDF serve `data/resume/main.pdf` as "<name>.pdf".
+- `scripts/render_resume.py [json] [-o out.pdf]` renders by hand (default: the main resume);
+  `resume/example_resume.json` is a made-up full resume for the public repo.
 - The rules for what tailoring may change per section (fixed blocks, About Me rewritten, projects
   picked with frozen bullets, skills sidebar built per job) live in `data/profile.md` under
-  "## Resume". The tailoring agent itself is not built yet.
+  "## Resume". Build order (user's call: screens before the agent, so they're tested on the main
+  resume first): content file -> Main Resume editor page -> per-job resume editor -> tailoring
+  agent that fills the editor with a draft -> feedback review / eval set from saved edits.
 
 ## Rejected: Secret Hunter (secrethunter.io)
 Investigated as an extra source; not pursued. Its `/jobs/search` endpoint has no public API - the

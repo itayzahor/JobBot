@@ -12,8 +12,10 @@ from flask import Flask, redirect, render_template, request, url_for
 from markupsafe import Markup, escape
 
 from jobbot import config, db, gmail_suggestions, pipeline, scrape_state
+from jobbot.resume import web as resume_web
 
 app = Flask(__name__)
+app.register_blueprint(resume_web.bp)
 
 # Job descriptions come back from JobSpy as literal Markdown (LinkedIn/Indeed both write postings
 # in it), but templates used to dump them as plain escaped text - so "**Requirements**" rendered

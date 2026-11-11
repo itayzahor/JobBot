@@ -18,6 +18,12 @@ DB_PATH = Path(os.environ.get("JOBBOT_DB_PATH", DATA_DIR / "jobs.db"))
 # The user's candidate profile (resume master record) - personal, so it lives in gitignored data/.
 PROFILE_PATH = Path(os.environ.get("JOBBOT_PROFILE_PATH", DATA_DIR / "profile.md"))
 SCRAPE_STATE_PATH = DATA_DIR / "scrape_state.json"
+# Resume tailoring (personal content - gitignored data/). blocks.json = every approved resume
+# building block; main.json = the main resume as a selection from them; jobs/ = per-job resumes.
+RESUME_DIR = DATA_DIR / "resume"
+RESUME_BLOCKS_PATH = RESUME_DIR / "blocks.json"
+RESUME_MAIN_PATH = RESUME_DIR / "main.json"
+RESUME_JOBS_DIR = RESUME_DIR / "jobs"
 # Gmail agent. The credentials file is the OAuth client downloaded from Google Cloud; the token is
 # created on first login and is the real key to the mailbox - both stay in gitignored data/.
 GMAIL_CREDENTIALS_PATH = DATA_DIR / "gmail_credentials.json"
