@@ -177,6 +177,9 @@ the call at a glance.
     cap, distinct from the per-minute limit) - calls are throttled and retried with backoff on
     429/5xx before giving up for the rest of a run. If quota is exhausted, remaining jobs default
     to `decision="yes"` (not auto-screened, flagged for manual review) rather than being hidden.
+    **HTTP 402 (prepaid credits depleted) takes the same path, immediately** - found 2026-11-11 when
+    the credits ran out: before, 402 fell into "non-transient error, re-raise", so every job was
+    skipped by `pipeline.run()`'s per-row except and, once out of the scrape window, never seen.
   - `classify()` also takes optional `system_instruction` (override the module `SYSTEM_INSTRUCTION`)
     and `return_usage` (return `(JobFitResult, usage_metadata)` instead of just `JobFitResult`) -
     both `qa/prompt_eval.py`-only, unused by production, added so the eval harness can drive
@@ -722,6 +725,111 @@ can't tell when text overflows the page, and the Slides print path had lost the 
   that fails any check is never saved. **Editing a bullet on this page changes its approved wording**
   in `blocks.json` (sent as `{project, old, new}` replacements, confirmed in a dialog) - main is
   the master copy. Open/Download PDF serve `data/resume/main.pdf` as "<name>.pdf".
+- **Per-job resumes** (`/resume/job/<id>`, same `resume_editor.html` in `mode="job"`): a "Resume"
+  button on New / Applied / Processes cards ("Resume (draft)" / green "Resume ✓" once one exists).
+  Opens the editor starting from the current main resume, plus the job (posting link, collapsible
+  description to read while editing) and a live "Changes from your main resume" list. Here a bullet
+  edit is **for this job only** - it stays in the job's selection as unapproved wording (a warning)
+  and `blocks.json` is never touched. Save draft / Approve ("the version I send"); any save after
+  approval drops it back to draft. "Reset to main" and "Make this my main resume" (refused while
+  the job version has reworded bullets - main holds approved wording only). Stored by
+  `resume/job_resumes.py` as `data/resume/jobs/<id>.json` + `.pdf`, with a snapshot of the job
+  (job rows get auto-deleted by retention, the resume shouldn't lose its context) and
+  `main_at_start` - the main resume it was compared to, kept for the later feedback step. The fit
+  badge and save messages report the tighter of the two columns.
+- **Editor layout (both modes):** every editor section (AI draft, Changes from main, About Me,
+  Projects, Skills) is a collapsible `<details class="section">`, closed by default, opening in
+  place and pushing the rest down - per user request, to focus on one section at a time. Each
+  header shows a one-line summary of its contents. On a job's page, About Me opens to three cards
+  - Strengths (default), Personal, Main resume - each editable, "Use this" puts one on the resume;
+  the chosen style and all three texts are saved with the job (`about_style`, `about_texts`).
+- **Sidebar = justified items only** (user caught JavaScript/TypeScript/three databases kept on
+  every draft - a prompt target "about as long as the main resume's" made the model pad with the
+  main sidebar). No length target now; each item carries a `layer`: asked (posting names it),
+  related (close substitute: Kotlin -> Java), core (`tailor.CORE_SKILLS` = Java, Python, SQL, Git -
+  added by code if missing, never dropped by `_fit`), role (typical for the role, unnamed; code caps
+  at 3). **Relevant Coursework** is a `skill_pool` group in `blocks.json` (short course names from
+  the transcript); the agent picks 2-4, code keeps courses in that one group. Groups are ordered
+  most relevant first, so `_fit` cuts sidebar overflow from the last group. The AI panel lists
+  "Why each sidebar item" (layer + the posting's words). Note: `|tojson`/`jsonify` sort dict keys,
+  so anything order-sensitive (project reasons) is rendered by iterating the selection, not the dict.
+  **Extras** (added after a long-shot modem role came out with a near-empty sidebar): the model also
+  ranks up to 10 more pool skills that show general engineering ability (layer `extra`); code adds
+  them all to their usual groups, then `_fit` trims extras least-relevant-first before anything
+  else - so the sidebar fills to the bottom by relevance with no hard-coded count. Core grew to
+  Java, Python, SQL, Git, GitHub, Claude Code (user: Claude Code always). Same incident fixed
+  About Me copying the posting's domain ("focused on system modeling" for a candidate who has
+  never done it): sentence 1's focus must be the candidate's real work, and nothing the model
+  marked missing/partial in `requirements` may appear as a focus or strength.
+  **Extras must be explainable**: each project in `blocks.json` lists the `skills` it actually used,
+  and an extra is kept only if one of the 2 chosen projects used it (user: "fillers should be
+  skills the projects show - easier to explain"; Playwright only when a posting asks). **Fewer
+  one-line groups**: pool groups Data + Databases are one group titled just "Data", Testing is in Development Tools. Groups are never merged under joined titles (user disliked "Backend & Frontend"): `_fix_lonely_groups` tops a lone item's group up with up to 2 more items from the same pool group that the chosen projects used (marked extra, trimmed first); still alone and only an extra -> left off; a lone asked/related/core item keeps its line; Claude Code alone under AI-Assisted Development is OK. `tailor._call_model` also retries dropped connections (httpx/httpcore), not just Gemini API errors.
+- **Prompt structure (audited 2026-11-11, input ~9.6k -> ~7.8k tokens, no quality loss):** tagged
+  parts, stable first and the job last - `<profile>`, `<resume_blocks>`, `<main_about>`,
+  `<length_limit>`, `<job_posting>` (tags, not `#` headings: the profile has its own headings).
+  `SYSTEM_INSTRUCTION` is the agent's **single rulebook** - the profile's "## Resume" section (the
+  human-readable copy of the same rules, which had drifted) is left out, as are "What I'm looking
+  for", Pending review / Interview stories / Personal, and the Basics bullets for military, contact,
+  links and location (code fills contact/links; military is fixed and banned from About Me). Only
+  the main *About Me* is sent - its projects and sidebar anchored the model. The old About Me
+  examples (one says "Passionate") are gone too. So: **changing a resume rule means editing
+  `SYSTEM_INSTRUCTION` (and the profile's Resume section, for humans) - the agent never reads the
+  latter.** Each draft records `token_breakdown` (input / cached_input / output / thinking);
+  typical: ~8k in, ~2k out, 2-7k thinking. Requirement calibration rules: "partial" = less of the
+  same thing (not adjacent); an unmet number (GPA, years) is "missing"; evidence respects skill
+  tiers. `ASKED_ONLY` (Gmail API, Playwright) are never filler.
+- **About Me wording** (picked by the user from a side-by-side of 4 variants x 4 jobs): sentence 1 is
+  "<Title> who builds <1-2 broad areas>" with areas from a fixed list in the prompt (AI-powered
+  applications, backend systems, data-driven applications, automation tools, end-to-end products,
+  computer vision applications, mobile apps) - "focused on <...>" invited the model to stuff in
+  techniques ("multi-stage processing pipelines" for a modem role). Strengths sentence 2 =
+  disciplines, not tasks; Personal sentence 2 is verb-led ("Takes full ownership...") - the
+  "Brings X, Y, and Z" pattern read stiff and is code-flagged.
+- **About Me is max 4 lines** (`render.MAX_ABOUT_LINES`) - a 5-line Personal version pushed
+  Military Service to the bottom edge. Measured, not word-counted (line count depends on font and
+  column width): `render.py` measures the `#about` paragraph's height / line-height, a longer one
+  fails the render check like an overflow (so Save refuses it), and the editor's fit badge shows
+  "About Me N/4 lines" live, red when over. The agent gets the main About Me's character count as
+  its budget (that text is exactly 4 lines) - writing to length reads far better than cutting
+  afterwards, which turned sentences into trait lists; `tailor._fit_about` measures both versions
+  and only then asks the model to shorten (2 tries), as a safety net.
+- **User requirement, not built yet:** once a job is applied to, its resume is frozen - the version
+  that was sent, no more edits. Editing stays enabled on Applied cards *for now* only because the
+  agent is being tested on already-applied jobs; lock it (view-only "Resume sent") once testing ends.
+- **Tailoring agent** (`resume/tailor.py`, model `gemini-3.8-flash` - stronger than the filter's
+  flash-lite, affordable since it runs once per click). Same split as the job filter: the model
+  judges, Python decides. One structured call: `requirements` first (each quoted from the posting,
+  must-have vs nice, have/partial/missing with evidence from the profile - quote-first), then 2
+  projects with their bullet **numbers ranked** by relevance, the sidebar, About Me, and (usually
+  none) rewording suggestions. Python then copies bullets from `blocks.json` by number **in their
+  approved order** - the user's bullets tell each project's story in sequence; an earlier version
+  that reordered them by relevance read as buzzwords to the user, so the ranking is now used only
+  as the drop order. Rewordings are never applied - the editor shows them with "Use this wording".
+  Python also drops unknown projects and skills outside the pool, keeps "C" only if the posting
+  names C, **puts Java first** in its group (the user's interview language), renames a "Languages"
+  group, flags About Me red flags ("passionate", "N years", "graduate"/"student", "experienced
+  in", tool names - About Me is the user's deliberate aspirational positioning: target title first
+  ("Software Engineer focused on..."), general strengths, tools stay in the sidebar; a "more
+  personal" About Me was proposed and rejected; the user then asked for a *second* option instead:
+  the agent writes two versions every time - "Strengths" (title + focus, "Strong foundation in...")
+  and "Personal" (same first sentence, then how they work). Personal is aimed at the posting:
+  the model first quotes the soft skills the posting asks for (`soft_skills_asked`), then answers
+  them with 2-3 traits from a fixed list the profile backs (`traits_used`); role-type defaults are
+  only a fallback when the posting asks for none - an earlier version forced per-role traits and
+  would have ignored a posting that asks for teamwork. Never military in About Me (code-flagged),
+  stock phrases like "team player" flagged. The AI panel shows "Posting asks for: … → used: …"
+  and "Use this" per version; Strengths is the default), and **fits the page by dropping the
+  lowest-ranked bullet of the fullest project / last sidebar skill and re-rendering**. Every enforced
+  rule becomes a visible note. The prompt gets the profile **minus** "Pending review" (unverified),
+  "Interview stories" and "Personal". Drafts are stored as `data/resume/jobs/<id>.draft.json`,
+  separate from the user's saved version, for the later feedback comparison. On the job's resume
+  page: an "AI draft" panel (Draft with AI / Redraft, ~20-40s; requirement checklist with missing
+  must-haves highlighted; why each project; notes) - a job with a draft but no saved resume opens
+  with the draft in the editor. `scripts/tailor_resume.py [job_id ...]` runs it from the command
+  line (default: the 3 jobs in the gitignored `data/resume/test_jobs.json`). First run: project
+  choice/order, sidebar and requirement checks were good; About Me tended to inflate ("Experienced
+  in designing LangGraph agents" for one agent) - left for the user's edits to decide.
 - `scripts/render_resume.py [json] [-o out.pdf]` renders by hand (default: the main resume);
   `resume/example_resume.json` is a made-up full resume for the public repo.
 - The rules for what tailoring may change per section (fixed blocks, About Me rewritten, projects

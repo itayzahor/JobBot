@@ -8,7 +8,9 @@ real, clickable link annotations (the Slides print path had lost the LinkedIn li
 Every render is checked, and a failed check raises instead of handing back a broken resume:
 - fit:   the main column and the sidebar each end above the bottom of the page;
 - links: every URL in the data is a clickable link in the PDF;
-- fonts: Poppins actually loaded (a silent fallback font would change the layout).
+- fonts: Poppins actually loaded (a silent fallback font would change the layout);
+- About Me: at most MAX_ABOUT_LINES lines - a longer one pushes everything below it down, and line
+  count (not word count) is what decides that, since it depends on the font and column width.
 """
 
 import base64
@@ -23,6 +25,12 @@ from pypdf import PdfReader
 HERE = Path(__file__).resolve().parent
 FONTS_DIR = HERE / "fonts"
 PX_PER_MM = 96 / 25.4  # CSS pixels per millimetre
+MAX_ABOUT_LINES = 4
+# Rendered line count of the About Me paragraph: its height over its line height.
+_ABOUT_LINES_JS = """() => {
+    const el = document.getElementById('about');
+    return Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
+}"""
 
 
 class ResumeCheckError(Exception):
@@ -35,6 +43,7 @@ class RenderResult:
     pdf_path: Path
     main_free_mm: float     # empty space left at the bottom of the main column
     sidebar_free_mm: float  # same for the sidebar
+    about_lines: int        # rendered lines of the About Me paragraph
     links: list[str]        # link URLs found in the PDF
 
 
@@ -91,15 +100,19 @@ def render(resume: dict, out_pdf: Path) -> RenderResult:
             };
             return {main: pageBottom - lastBottom('main'), sidebar: pageBottom - lastBottom('sidebar')};
         }""")
+        about_lines = page.evaluate(_ABOUT_LINES_JS)
         page.pdf(path=str(out_pdf), width="210mm", height="300mm", print_background=True)
         browser.close()
 
     pages, links = pdf_links(out_pdf)
-    result = RenderResult(html_path, out_pdf, free["main"] / PX_PER_MM, free["sidebar"] / PX_PER_MM, links)
+    result = RenderResult(html_path, out_pdf, free["main"] / PX_PER_MM, free["sidebar"] / PX_PER_MM,
+                          about_lines, links)
 
     problems = []
     if not fonts_ok:
         problems.append("Poppins font did not load")
+    if about_lines > MAX_ABOUT_LINES:
+        problems.append(f"About Me is {about_lines} lines - max {MAX_ABOUT_LINES}")
     if pages != 1:
         problems.append(f"PDF has {pages} pages, expected 1")
     if result.main_free_mm < 0:
@@ -112,6 +125,20 @@ def render(resume: dict, out_pdf: Path) -> RenderResult:
     if problems:
         raise ResumeCheckError("; ".join(problems))
     return result
+
+
+def about_line_counts(resume: dict, abouts: list[str]) -> list[int]:
+    """How many lines each About Me text would take on this resume (one browser for all)."""
+    counts = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        for text in abouts:
+            page.set_content(build_html({**resume, "about": text}))
+            page.evaluate("document.fonts.ready")
+            counts.append(page.evaluate(_ABOUT_LINES_JS))
+        browser.close()
+    return counts
 
 
 def load(path: Path) -> dict:

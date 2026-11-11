@@ -225,6 +225,15 @@ def classify(
                 return result, response.usage_metadata
             return result
         except errors.APIError as e:
+            # 402 = prepaid credits depleted. Same outcome as an exhausted quota - no retry can fix it
+            # - so take the same path: remaining jobs reach the dashboard unscreened instead of being
+            # skipped (a skipped job is never re-scraped once it falls out of the scrape window).
+            if e.code == 402:
+                _quota_exceeded = True
+                raise GeminiQuotaExceededError(
+                    "Gemini prepaid credits are depleted (HTTP 402) - top up at ai.studio. "
+                    "Remaining jobs will be marked fit=true (needs manual review) for this run."
+                ) from e
             # 429 = free-tier rate limit; 5xx = transient server-side issue ("high demand").
             # Both are worth retrying with backoff - anything else (400/403/404) is not transient.
             if e.code != 429 and e.code < 500:

@@ -218,6 +218,14 @@
 
         button:hover { opacity: 0.85; }
 
+        .resume-btn {
+            display: inline-flex; align-items: center; padding: 0.45rem 1rem; border-radius: 8px;
+            font-size: 0.85rem; font-weight: 600; text-decoration: none;
+            background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(79, 70, 229, 0.15);
+        }
+        .resume-btn:hover { opacity: 0.85; }
+        .resume-btn.approved { background: var(--green-soft); color: var(--green); border-color: rgba(22, 163, 74, 0.15); }
+
         .apply, .restore, .interview {
             background: var(--green-soft);
             color: var(--green);
@@ -277,6 +285,8 @@
             <div class="desc">{{ job.description|format_description }}</div>
         </details>
         <div class="actions">
+            {% set rs = resume_status.get(job.id) %}
+            <a class="resume-btn {{ rs or '' }}" href="{{ url_for('resume.job_page', job_id=job.id) }}">{% if rs == 'approved' %}Resume ✓{% elif rs == 'draft' %}Resume (draft){% else %}Resume{% endif %}</a>
             <form method="post" action="{{ url_for('interview', job_id=job.id) }}">
                 <input type="hidden" name="next" value="applied">
                 <button class="interview" type="submit">Move to Process</button>

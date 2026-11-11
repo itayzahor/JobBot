@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobBot - {% if mode == 'job' %}Resume for {{ record.job.company }}{% else %}Main Resume{% endif %}</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --border: #e5e7eb; --text: #1a1d23; --muted: #6b7280;
+    --accent: #4f46e5; --accent-soft: #eef2ff; --green: #16a34a; --green-soft: #ecfdf3;
+    --red: #dc2626; --red-soft: #fef2f2; --amber: #b45309; --amber-soft: #fffbeb;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); margin: 0; padding: 2rem 1.5rem 3rem; }
+  .top { max-width: 1500px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1rem; }
+  h1 { font-size: 1.4rem; margin: 0; }
+  .nav { display: flex; gap: 1.25rem; margin-bottom: 1.25rem; font-size: 0.9rem; }
+  .nav a { color: var(--muted); text-decoration: none; font-weight: 600; padding-bottom: 0.3rem;
+           border-bottom: 2px solid transparent; }
+  .nav a:hover { color: var(--accent); }
+  .nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .nav-count { display: inline-block; min-width: 1.3rem; padding: 0 0.35rem; border-radius: 999px;
+               background: var(--accent); color: #fff; font-size: 0.72rem; text-align: center; }
+
+  .layout { display: grid; grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr); gap: 1.5rem;
+            max-width: 1500px; margin: 0 auto; align-items: start; }
+  @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+           padding: 1.1rem 1.25rem; box-shadow: var(--shadow); margin-bottom: 1rem; }
+  .panel h2 { font-size: 1rem; margin: 0 0 0.6rem; }
+  .hint { color: var(--muted); font-size: 0.8rem; margin: -0.3rem 0 0.6rem; }
+  textarea, input[type=text], select { font: inherit; font-size: 0.88rem; width: 100%;
+           border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.6rem; background: #fff; }
+  textarea { resize: vertical; line-height: 1.45; }
+  select { width: auto; max-width: 100%; }
+
+  button { padding: 0.4rem 0.9rem; border-radius: 8px; border: 1px solid var(--border); background: #fff;
+           font-size: 0.82rem; font-weight: 600; cursor: pointer; color: var(--text); }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.icon { padding: 0.15rem 0.45rem; font-size: 0.8rem; color: var(--muted); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { opacity: 0.9; color: #fff; }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  .project { border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.8rem; margin-bottom: 0.7rem; }
+  .row { display: flex; gap: 0.4rem; align-items: center; }
+  .row .grow { flex: 1; }
+  .project-title { font-weight: 650; font-size: 0.92rem; }
+  .bullet { display: flex; gap: 0.4rem; align-items: flex-start; margin-top: 0.45rem; }
+  .bullet textarea { flex: 1; min-height: 2.6rem; }
+  .bullet .tools { display: flex; flex-direction: column; gap: 0.2rem; }
+  .tag { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 0.05rem 0.45rem; }
+  .tag.edited { background: var(--amber-soft); color: var(--amber); }
+  .add-row { margin-top: 0.55rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+  .group { border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.7rem; margin-bottom: 0.55rem; }
+  .group input[type=text] { font-weight: 650; width: auto; flex: 1; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.45rem 0; }
+  .chip { display: inline-flex; align-items: center; gap: 0.25rem; background: var(--accent-soft); color: var(--accent);
+          border-radius: 999px; padding: 0.15rem 0.3rem 0.15rem 0.6rem; font-size: 0.8rem; font-weight: 600; }
+  .chip button { border: none; background: none; padding: 0 0.25rem; color: inherit; font-size: 0.8rem; }
+
+  /* The preview column takes exactly the screen height; the page inside is either shrunk to fit
+     whole, or shown at full width and scrolled inside the frame - never cut off. */
+  .preview-col { position: sticky; top: 1rem; height: calc(100vh - 2rem); display: flex; flex-direction: column; }
+  @media (max-width: 1000px) { .preview-col { position: static; height: 90vh; } }
+  .zoom { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .zoom button { border: none; border-radius: 0; padding: 0.4rem 0.7rem; }
+  .zoom button.on { background: var(--accent-soft); color: var(--accent); }
+  .frame-wrap { flex: 1; min-height: 0; overflow: auto; }
+  .frame-wrap.whole .frame-box { cursor: zoom-in; }
+  .frame-wrap.width .frame-box { cursor: zoom-out; }
+  #preview { pointer-events: none; }  /* clicks go to the box (zoom), not into the page */
+  .bar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .fit { font-size: 0.82rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 999px; }
+  .fit.ok { background: var(--green-soft); color: var(--green); }
+  .fit.bad { background: var(--red-soft); color: var(--red); }
+  .msgs { font-size: 0.82rem; margin-bottom: 0.6rem; }
+  .msgs div { padding: 0.35rem 0.6rem; border-radius: 8px; margin-bottom: 0.3rem; }
+  .msgs .err { background: var(--red-soft); color: var(--red); }
+  .msgs .warn { background: var(--amber-soft); color: var(--amber); }
+  .msgs .ok { background: var(--green-soft); color: var(--green); }
+  .frame-wrap { background: #d9dbe0; border-radius: 10px; padding: 12px; }
+  .frame-box { position: relative; margin: 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,0.15); background: #fff; }
+  #preview { position: absolute; top: 0; left: 0; width: 794px; height: 1134px; border: 0; transform-origin: 0 0; }
+  .job-panel h2 { font-size: 1.05rem; }
+  .job-panel .company { color: var(--muted); font-weight: 500; }
+  .job-panel .meta { font-size: 0.85rem; color: var(--muted); margin: 0.2rem 0 0.6rem; }
+  .job-panel .meta a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  details summary { cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+  .desc { max-height: 320px; overflow-y: auto; white-space: pre-wrap; font-size: 0.85rem; line-height: 1.5;
+          background: var(--bg); padding: 0.75rem 0.9rem; border-radius: 8px; margin-top: 0.5rem; unicode-bidi: plaintext; }
+  .desc strong, .desc .desc-heading { color: var(--accent); font-weight: 700; }
+  .status { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 0.15rem 0.6rem; white-space: nowrap; }
+  .status.approved { background: var(--green-soft); color: var(--green); }
+  .status.draft { background: var(--amber-soft); color: var(--amber); }
+  .status.none { background: var(--bg); color: var(--muted); }
+  .changes { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; line-height: 1.55; }
+  .changes .same { color: var(--muted); list-style: none; margin-left: -1.1rem; }
+  .make-main { margin-top: 0.6rem; }
+  /* Collapsible editor sections - open in place and push the rest down, like a job description */
+  details.section { padding-top: 0.85rem; padding-bottom: 0.85rem; }
+  details.section > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 0.6rem; user-select: none; }
+  details.section > summary::-webkit-details-marker { display: none; }
+  details.section > summary::before { content: "▸"; color: var(--muted); font-size: 0.85rem; }
+  details.section[open] > summary::before { content: "▾"; }
+  details.section > summary h2 { margin: 0; white-space: nowrap; }
+  details.section[open] > summary { margin-bottom: 0.7rem; }
+  .sum { color: var(--muted); font-size: 0.82rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .about-opt { border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.7rem; margin-bottom: 0.6rem; }
+  .about-opt.chosen { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .about-opt .row { margin-bottom: 0.4rem; }
+  .about-opt b { font-size: 0.88rem; }
+  .about-opt .ev { color: var(--muted); font-size: 0.78rem; margin-top: 0.35rem; }
+  .ai-meta { color: var(--muted); font-size: 0.8rem; margin: 0.1rem 0 0.6rem; }
+  .ai-h { font-size: 0.82rem; font-weight: 700; margin: 0.7rem 0 0.3rem; }
+  .reqs { list-style: none; margin: 0; padding: 0; font-size: 0.84rem; }
+  .reqs li { padding: 0.3rem 0; border-top: 1px solid var(--border); display: flex; gap: 0.5rem; align-items: baseline; }
+  .reqs .ev { color: var(--muted); font-size: 0.78rem; display: block; }
+  .m { font-size: 0.68rem; font-weight: 700; border-radius: 999px; padding: 0.05rem 0.45rem; white-space: nowrap; }
+  .m.have { background: var(--green-soft); color: var(--green); }
+  .m.partial { background: var(--amber-soft); color: var(--amber); }
+  .m.missing { background: var(--red-soft); color: var(--red); }
+  .m.layer-asked { background: var(--green-soft); color: var(--green); }
+  .m.layer-related { background: var(--amber-soft); color: var(--amber); }
+  .m.layer-core { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+  .m.layer-role { background: var(--accent-soft); color: var(--accent); }
+  .m.layer-extra { background: var(--bg); color: var(--muted); border: 1px dashed var(--border); }
+  .must { font-size: 0.68rem; font-weight: 700; color: var(--muted); white-space: nowrap; }
+  .ai-list { margin: 0; padding-left: 1.1rem; font-size: 0.84rem; line-height: 1.5; }
+  .ai-busy { color: var(--accent); font-size: 0.85rem; }
+  .sugg { border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; margin-bottom: 0.4rem; font-size: 0.84rem; }
+  .sugg-old { color: var(--muted); text-decoration: line-through; margin-bottom: 0.25rem; }
+  .sugg-new { margin-bottom: 0.3rem; }
+  .sugg .ev { color: var(--muted); font-size: 0.78rem; }
+</style>
+</head>
+<body>
+<div class="top">
+  <header>
+    <h1>JobBot</h1>
+    <span class="count" id="saved-state"></span>
+  </header>
+  <nav class="nav">
+    <a href="{{ url_for('dashboard') }}">New</a>
+    <a href="{{ url_for('inbox') }}">Inbox{% if inbox_count %} <span class="nav-count">{{ inbox_count }}</span>{% endif %}</a>
+    <a href="{{ url_for('applied') }}">Applied</a>
+    <a href="{{ url_for('processes') }}">Processes</a>
+    <a href="{{ url_for('closed') }}">Closed</a>
+    <a href="{{ url_for('deleted') }}">Deleted</a>
+    <a href="{{ url_for('resume.main_page') }}"{% if mode == 'main' %} class="active"{% endif %}>Resume</a>
+  </nav>
+</div>
+
+<div class="layout">
+  <div id="editor">
+    {% if mode == 'job' %}
+    <div class="panel job-panel">
+      <div class="row"><h2 class="grow">{{ record.job.title }} — <span class="company">{{ record.job.company }}</span></h2>
+        <span class="status" id="job-status"></span></div>
+      <div class="meta">
+        {% if record.job.location %}<span>{{ record.job.location }}</span> · {% endif %}
+        {% if record.job.url %}<a href="{{ record.job.url }}" target="_blank" rel="noopener">Open posting ↗</a>{% endif %}
+      </div>
+      <details><summary>Job description</summary><div class="desc">{{ record.job.description|format_description }}</div></details>
+    </div>
+    <details class="panel section" id="ai-panel">
+      <summary><h2>AI draft</h2><span class="sum" id="ai-sum"></span></summary>
+      <div class="row" style="justify-content:flex-end; margin-bottom:0.4rem">
+        <button type="button" id="ai-load" hidden title="Replace what's in the editor with the AI draft">Load draft into editor</button>
+        <button type="button" class="primary" id="ai-run">Draft with AI</button></div>
+      <div id="ai-body"></div>
+    </details>
+    <details class="panel section" id="changes-panel">
+      <summary><h2>Changes from main</h2><span class="sum" id="changes-sum"></span></summary>
+      <div class="row" style="justify-content:flex-end"><button type="button" id="reset-main" title="Throw away this job's changes and start again from the main resume">Reset to main</button></div>
+      <ul class="changes" id="changes"></ul>
+    </details>
+    {% endif %}
+    <details class="panel section" id="about-panel">
+      <summary><h2>About Me</h2><span class="sum" id="about-sum"></span></summary>
+      {% if mode == 'job' %}
+      <p class="hint">Three versions - edit any of them, and press "Use this" on the one you want on the resume.</p>
+      <div id="about-options"></div>
+      {% else %}
+      <p class="hint">Start from a saved version, then edit freely.</p>
+      <div class="row" style="margin-bottom:0.5rem">
+        <select id="about-version"></select>
+        <button type="button" id="about-use">Use this version</button>
+      </div>
+      <textarea id="about" rows="4"></textarea>
+      {% endif %}
+    </details>
+
+    <details class="panel section" id="projects-panel">
+      <summary><h2>Projects</h2><span class="sum" id="projects-sum"></span></summary>
+      <p class="hint">Order matters - the first project is shown first. {% if mode == 'job' %}Editing a bullet here changes it for this job only.{% else %}Editing a bullet here changes its approved wording when you save.{% endif %}</p>
+      <div id="projects"></div>
+      <div class="add-row"><select id="project-add"></select><button type="button" id="project-add-btn">Add project</button></div>
+    </details>
+
+    <details class="panel section" id="skills-panel">
+      <summary><h2>Skills sidebar</h2><span class="sum" id="skills-sum"></span></summary>
+      <p class="hint">Only skills from your skill pool can be added.</p>
+      <div id="skills"></div>
+      <div class="add-row"><button type="button" id="group-add">Add group</button></div>
+    </details>
+  </div>
+
+  <div class="preview-col">
+    <div class="bar">
+      {% if mode == 'job' %}
+      {% set pdf_url = url_for('resume.job_pdf', job_id=record.job.id) %}
+      <button type="button" id="save">Save draft</button>
+      <button type="button" class="primary" id="approve" title="Save, and mark this as the version you send">Approve</button>
+      {% else %}
+      {% set pdf_url = url_for('resume.main_pdf') %}
+      <button type="button" class="primary" id="save">Save</button>
+      {% endif %}
+      <a href="{{ pdf_url }}" target="_blank" id="open-pdf" {% if not has_pdf %}hidden{% endif %}><button type="button">Open PDF</button></a>
+      <a href="{{ pdf_url }}?download=1" id="dl-pdf" {% if not has_pdf %}hidden{% endif %}><button type="button">Download PDF</button></a>
+      <span class="fit" id="fit"></span>
+      <span class="zoom" title="Click the page to zoom in or out">
+        <button type="button" data-zoom="whole">Whole page</button><button type="button" data-zoom="width">Fit width</button>
+      </span>
+    </div>
+    <div class="msgs" id="msgs"></div>
+    <div class="frame-wrap" id="frame-wrap"><div class="frame-box" id="frame-box"><iframe id="preview" title="Resume preview"></iframe></div></div>
+  </div>
+</div>
+
+<script>
+const BLOCKS = {{ blocks|tojson }};
+const SAVED = {{ selection|tojson }};
+const PROJECTS = Object.fromEntries(BLOCKS.projects.map(p => [p.id, p]));
+const POOL = BLOCKS.skill_pool;
+const MODE = {{ mode|tojson }};          // "main" or "job"
+const MAIN = {{ main|tojson }};          // the current main resume - what a job resume is compared to
+let jobStatus = {{ (record.status if record and record.created_at else "none")|tojson }};
+let DRAFT = {{ draft|tojson }};          // the AI draft for this job, or null
+// About Me versions (job mode): the three cards' texts and which one is on the resume.
+const ABOUT_STYLES = [["strengths", "Strengths"], ["personal", "Personal"], ["main", "Main resume"]];
+const SAVED_ABOUT = {{ ({"style": record.get("about_style"), "texts": record.get("about_texts")} if record else {})|tojson }};
+let aboutTexts = {}, aboutStyle = "main";
+
+// Editor state. Each bullet remembers the approved text it started from (orig), so an edit can be
+// saved as a replacement of that approved wording.
+let state;
+function loadState(sel) {
+  state = {
+    about: sel.about,
+    projects: sel.projects.map(p => ({
+      id: p.id,
+      bullets: p.bullets.map(t => ({ text: t, orig: PROJECTS[p.id].bullets.includes(t) ? t : null })),
+    })),
+    skills: sel.skills.map(g => ({ group: g.group, items: [...g.items] })),
+  };
+}
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Grow a textarea to fit its text, so no bullet is ever cut off in the editor.
+const autosize = t => { t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px"; };
+const move = (arr, i, d) => { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; };
+
+function selection() {
+  return {
+    about: state.about.trim(),
+    projects: state.projects.map(p => ({ id: p.id, bullets: p.bullets.map(b => b.text.trim()).filter(Boolean) })),
+    skills: state.skills.map(g => ({ group: g.group.trim(), items: g.items })),
+  };
+}
+function replacements() {
+  if (MODE === "job") return [];  // per-job edits never touch the approved wording
+  const out = [];
+  for (const p of state.projects)
+    for (const b of p.bullets)
+      if (b.orig !== null && b.text.trim() !== b.orig) out.push({ project: p.id, old: b.orig, new: b.text.trim() });
+  return out;
+}
+
+// ---------- rendering the editor ----------
+function renderAboutVersions() {
+  if (MODE !== "main") return;
+  document.getElementById("about-version").innerHTML = BLOCKS.about_versions
+    .map((v, i) => `<option value="${i}">${esc(v.text.slice(0, 70))}…</option>`).join("");
+  document.getElementById("about").value = state.about;
+}
+
+// ---------- About Me versions (job mode) ----------
+function draftAbout(style) {
+  const o = DRAFT && (DRAFT.about_options || []).find(x => x.style.toLowerCase() === style);
+  return o ? o.text : null;
+}
+// Fill the three cards: main from the main resume, strengths/personal from the AI draft, then any
+// edits saved with this job; the card in use always holds what's actually on the resume.
+function initAbout() {
+  aboutTexts = { strengths: draftAbout("strengths"), personal: draftAbout("personal"), main: MAIN.about };
+  for (const [k, v] of Object.entries((SAVED_ABOUT && SAVED_ABOUT.texts) || {})) if (v) aboutTexts[k] = v;
+  const saved = SAVED_ABOUT && SAVED_ABOUT.style;
+  if (saved && aboutTexts[saved] != null) aboutStyle = saved;
+  else aboutStyle = ["strengths", "personal", "main"].find(s => aboutTexts[s] && aboutTexts[s].trim() === state.about.trim())
+    || (DRAFT ? "strengths" : "main");
+  aboutTexts[aboutStyle] = state.about;
+}
+function chooseAbout(style) {
+  aboutStyle = style; state.about = aboutTexts[style];
+  renderAboutOptions(); renderChanges(); renderSummaries(); schedulePreview();
+}
+function renderAboutOptions() {
+  const el = document.getElementById("about-options"); if (!el) return;
+  const personal = DRAFT && (DRAFT.about_options || []).find(x => x.style.toLowerCase() === "personal");
+  el.innerHTML = ABOUT_STYLES.map(([style, label]) => {
+    const text = aboutTexts[style], chosen = style === aboutStyle;
+    const why = style === "personal" && personal && personal.traits ? `<div class="ev">${personal.asked && personal.asked.length
+        ? `Posting asks for: ${personal.asked.map(a => "“" + esc(a) + "”").join(", ")}`
+        : "The posting doesn't ask for soft skills - used the defaults for this kind of role"} → used: ${esc(personal.traits.join(", "))}</div>` : "";
+    return `<div class="about-opt${chosen ? " chosen" : ""}">
+      <div class="row"><b class="grow">${label}${style === "strengths" ? ' <span class="ev" style="font-weight:400">(default)</span>' : ""}</b>
+        ${text == null ? "" : chosen ? '<span class="m have">On the resume</span>' : `<button type="button" data-about-style="${style}">Use this</button>`}</div>
+      ${text == null ? '<p class="hint" style="margin:0">Press "Draft with AI" to get this version.</p>'
+        : `<textarea class="about-text" data-style="${style}" rows="3">${esc(text)}</textarea>`}${why}</div>`;
+  }).join("");
+  el.querySelectorAll("textarea").forEach(autosize);
+}
+
+// ---------- one-line summaries on the collapsed section headers ----------
+function renderSummaries() {
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  const label = (ABOUT_STYLES.find(s => s[0] === aboutStyle) || [, ""])[1];
+  set("about-sum", (MODE === "job" ? label + ": " : "") + state.about.trim());
+  set("projects-sum", state.projects.map(p => PROJECTS[p.id].title.split(" – ")[0] + ` (${p.bullets.length})`).join(" · "));
+  set("skills-sum", state.skills.map(g => g.group).join(" · "));
+  if (MODE === "job") {
+    const n = changesFromMain().length;
+    set("changes-sum", n ? `${n} change${n > 1 ? "s" : ""}` : "Same as your main resume");
+    const missing = DRAFT ? DRAFT.requirements.filter(r => r.must_have && r.match === "missing").length : 0;
+    set("ai-sum", !DRAFT ? "Not drafted yet" : `Drafted ${new Date(DRAFT.drafted_at).toLocaleDateString()}` +
+      (missing ? ` · ${missing} must-have${missing > 1 ? "s" : ""} you don't have` : ""));
+  }
+}
+
+function renderProjects() {
+  const html = state.projects.map((p, pi) => {
+    const proj = PROJECTS[p.id];
+    const used = new Set(p.bullets.map(b => b.orig));
+    const unused = proj.bullets.filter(t => !used.has(t));
+    const bullets = p.bullets.map((b, bi) => `
+      <div class="bullet">
+        <textarea data-p="${pi}" data-b="${bi}" class="bullet-text" rows="2">${esc(b.text)}</textarea>
+        <div class="tools">
+          <button type="button" class="icon" data-act="b-up" data-p="${pi}" data-b="${bi}" title="Move up">↑</button>
+          <button type="button" class="icon" data-act="b-down" data-p="${pi}" data-b="${bi}" title="Move down">↓</button>
+          <button type="button" class="icon" data-act="b-del" data-p="${pi}" data-b="${bi}" title="Remove from resume">✕</button>
+        </div>
+      </div>
+      ${isEdited(b) ? `<span class="tag edited">${MODE === "job" ? "edited for this job only" : "edited - will replace the approved wording"}</span>` : ""}`).join("");
+    const add = unused.length ? `<div class="add-row"><select data-p="${pi}" class="bullet-add">
+        ${unused.map(t => `<option value="${esc(t)}">${esc(t.slice(0, 80))}…</option>`).join("")}
+      </select><button type="button" data-act="b-add" data-p="${pi}">Add bullet</button></div>` : "";
+    return `<div class="project">
+      <div class="row"><span class="project-title grow">${esc(proj.title)}</span>
+        <button type="button" class="icon" data-act="p-up" data-p="${pi}" title="Move up">↑</button>
+        <button type="button" class="icon" data-act="p-down" data-p="${pi}" title="Move down">↓</button>
+        <button type="button" class="icon" data-act="p-del" data-p="${pi}" title="Remove project">✕</button></div>
+      ${bullets}${add}</div>`;
+  }).join("");
+  document.getElementById("projects").innerHTML = html;
+  document.querySelectorAll("textarea.bullet-text").forEach(autosize);
+  const chosen = new Set(state.projects.map(p => p.id));
+  const free = BLOCKS.projects.filter(p => !chosen.has(p.id));
+  document.getElementById("project-add").innerHTML = free.map(p => p.unavailable
+    ? `<option value="${p.id}" disabled>${esc(p.title)} - unavailable: ${esc(p.unavailable.split(" - ")[0])}</option>`
+    : `<option value="${p.id}">${esc(p.title)}</option>`).join("");
+  const firstOk = free.find(p => !p.unavailable);
+  if (firstOk) document.getElementById("project-add").value = firstOk.id;
+  document.getElementById("project-add").disabled = document.getElementById("project-add-btn").disabled = !firstOk;
+}
+
+function renderSkills() {
+  const used = new Set(state.skills.flatMap(g => g.items));
+  const options = POOL.map(g => {
+    const items = g.items.filter(i => !used.has(i));
+    return items.length ? `<optgroup label="${esc(g.group)}">${items.map(i => `<option>${esc(i)}</option>`).join("")}</optgroup>` : "";
+  }).join("");
+  document.getElementById("skills").innerHTML = state.skills.map((g, gi) => `
+    <div class="group">
+      <div class="row"><input type="text" class="group-name" data-g="${gi}" value="${esc(g.group)}">
+        <button type="button" class="icon" data-act="g-up" data-g="${gi}" title="Move up">↑</button>
+        <button type="button" class="icon" data-act="g-down" data-g="${gi}" title="Move down">↓</button>
+        <button type="button" class="icon" data-act="g-del" data-g="${gi}" title="Remove group">✕</button></div>
+      <div class="chips">${g.items.map((it, ii) => `<span class="chip">${esc(it)}
+        <button type="button" data-act="s-up" data-g="${gi}" data-i="${ii}" title="Move earlier">‹</button>
+        <button type="button" data-act="s-del" data-g="${gi}" data-i="${ii}" title="Remove">✕</button></span>`).join("")}</div>
+      ${options ? `<div class="row"><select class="skill-add" data-g="${gi}">${options}</select>
+        <button type="button" data-act="s-add" data-g="${gi}">Add skill</button></div>` : ""}
+    </div>`).join("");
+}
+
+function renderAll() { renderProjects(); renderSkills(); renderAboutOptions(); renderChanges(); renderDraftLoadButton(); renderSummaries(); schedulePreview(); }
+// Compare two selections by content - JSON from the server has its keys sorted, so a plain
+// JSON.stringify comparison would see a difference that isn't there.
+const canon = s => JSON.stringify({ about: (s.about || "").trim(),
+  projects: s.projects.map(p => ({ id: p.id, bullets: p.bullets })),
+  skills: s.skills.map(g => ({ group: g.group.trim(), items: g.items })) });
+const sameSelection = (a, b) => canon(a) === canon(b);
+function renderDraftLoadButton() {
+  const b = document.getElementById("ai-load");
+  if (b) b.hidden = !DRAFT || sameSelection(selection(), DRAFT.selection);
+}
+const isEdited = b => (b.orig === null) || b.text.trim() !== b.orig;
+
+// ---------- changes from the main resume (job mode) ----------
+function changesFromMain() {
+  const sel = selection(), out = [];
+  if (sel.about !== MAIN.about.trim()) out.push("About Me rewritten");
+  const title = id => PROJECTS[id] ? PROJECTS[id].title.split(" – ")[0] : id;
+  const mainP = Object.fromEntries(MAIN.projects.map(p => [p.id, p])), selP = Object.fromEntries(sel.projects.map(p => [p.id, p]));
+  for (const p of sel.projects) if (!mainP[p.id]) out.push(`Added project: ${title(p.id)}`);
+  for (const p of MAIN.projects) if (!selP[p.id]) out.push(`Removed project: ${title(p.id)}`);
+  const common = sel.projects.filter(p => mainP[p.id]).map(p => p.id);
+  if (common.join() !== MAIN.projects.filter(p => selP[p.id]).map(p => p.id).join()) out.push("Projects reordered");
+  for (const id of common) {
+    const a = mainP[id].bullets, b = selP[id].bullets;
+    const added = b.filter(x => !a.includes(x));
+    const edited = added.filter(x => !PROJECTS[id].bullets.includes(x)).length, readded = added.length - edited;
+    // A reworded bullet replaces an original one - count that pair once, as "reworded".
+    const removed = a.filter(x => !b.includes(x)).length - Math.min(edited, a.filter(x => !b.includes(x)).length);
+    if (removed) out.push(`${title(id)}: ${removed} bullet${removed > 1 ? "s" : ""} removed`);
+    if (readded) out.push(`${title(id)}: ${readded} bullet${readded > 1 ? "s" : ""} added`);
+    if (edited) out.push(`${title(id)}: ${edited} bullet${edited > 1 ? "s" : ""} reworded for this job`);
+    const kept = b.filter(x => a.includes(x));
+    if (kept.join("|") !== a.filter(x => b.includes(x)).join("|")) out.push(`${title(id)}: bullets reordered`);
+  }
+  const mainSkills = MAIN.skills.flatMap(g => g.items), selSkills = sel.skills.flatMap(g => g.items);
+  const sAdded = selSkills.filter(s => !mainSkills.includes(s)), sRemoved = mainSkills.filter(s => !selSkills.includes(s));
+  if (sAdded.length) out.push(`Skills added: ${sAdded.join(", ")}`);
+  if (sRemoved.length) out.push(`Skills removed: ${sRemoved.join(", ")}`);
+  if (!sAdded.length && !sRemoved.length && JSON.stringify(sel.skills) !== JSON.stringify(MAIN.skills)) out.push("Skills regrouped or reordered");
+  return out;
+}
+function renderChanges() {
+  const el = document.getElementById("changes"); if (!el) return;
+  const list = changesFromMain();
+  el.innerHTML = list.length ? list.map(c => `<li>${esc(c)}</li>`).join("") : '<li class="same">Same as your main resume.</li>';
+}
+function renderDraft() {
+  const body = document.getElementById("ai-body"); if (!body) return;
+  document.getElementById("ai-run").textContent = DRAFT ? "Redraft" : "Draft with AI";
+  if (!DRAFT) { body.innerHTML = '<p class="ai-meta">No AI draft yet. The agent reads the job description and drafts this resume from your approved blocks - nothing is saved until you press Save draft or Approve.</p>'; return; }
+  const when = new Date(DRAFT.drafted_at).toLocaleString();
+  const missingMust = DRAFT.requirements.filter(r => r.must_have && r.match === "missing").length;
+  const reqs = DRAFT.requirements.map(r => `<li><span class="m ${r.match}">${r.match}</span>
+      <span class="must">${r.must_have ? "MUST" : "nice"}</span>
+      <span>${esc(r.quote)}${r.evidence ? `<span class="ev">${esc(r.evidence)}</span>` : ""}</span></li>`).join("");
+  body.innerHTML = `
+    <p class="ai-meta">Drafted ${esc(when)} · ${esc(DRAFT.model)}${missingMust ? ` · <b style="color:var(--red)">${missingMust} must-have requirement${missingMust > 1 ? "s" : ""} you don't have</b>` : ""}</p>
+    <details ${missingMust ? "open" : ""}><summary>Job requirements vs. your profile (${DRAFT.requirements.length})</summary><ul class="reqs">${reqs}</ul></details>
+    <div class="ai-h">Why these choices</div>
+    <ul class="ai-list">${DRAFT.selection.projects.map(p => DRAFT.project_reasons[p.id]).filter(Boolean).map(r => `<li>${esc(r)}</li>`).join("")}<li>About Me: ${esc(DRAFT.about_why)}</li></ul>
+    ${DRAFT.skill_reasons ? `<div class="ai-h">Why each sidebar item</div>
+      <ul class="reqs">${DRAFT.selection.skills.map(g => g.items.map(i => {
+        const r = DRAFT.skill_reasons[i] || { layer: "", because: "" };
+        return `<li><span class="m layer-${r.layer}">${r.layer}</span><span><b>${esc(i)}</b>
+          <span class="ev">${esc(g.group)}${r.because ? " · " + (r.layer === "role" || r.layer === "extra" ? esc(r.because) : "“" + esc(r.because) + "”") : r.layer === "core" ? " · always on your resume" : ""}</span></span></li>`;
+      }).join("")).join("")}</ul>` : ""}
+    ${(DRAFT.rewordings || []).length ? `<div class="ai-h">Suggested rewording (not applied)</div>${DRAFT.rewordings.map((r, i) => `
+      <div class="sugg"><div class="sugg-old">${esc(r.original)}</div><div class="sugg-new">${esc(r.text)}</div>
+        <div class="row"><span class="ev grow">${esc(r.why)}</span>
+        <button type="button" data-sugg="${i}">Use this wording</button></div></div>`).join("")}` : ""}
+    ${DRAFT.notes.length ? `<div class="ai-h">Rules enforced by code</div><ul class="ai-list">${DRAFT.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}`;
+  const differs = !sameSelection(selection(), DRAFT.selection);
+  document.getElementById("ai-load").hidden = !differs;
+}
+function renderStatus() {
+  const el = document.getElementById("job-status"); if (!el) return;
+  el.className = "status " + jobStatus;
+  el.textContent = { approved: "Approved", draft: "Draft", none: "Not saved yet" }[jobStatus];
+}
+
+// ---------- editing ----------
+if (MODE === "main") {
+  document.getElementById("about-use").onclick = () => {
+    state.about = BLOCKS.about_versions[document.getElementById("about-version").value].text;
+    document.getElementById("about").value = state.about; renderSummaries(); schedulePreview();
+  };
+  document.getElementById("about").oninput = e => { state.about = e.target.value; renderSummaries(); schedulePreview(); };
+}
+// Opening a section: textareas inside a closed section have no height yet - size them now.
+document.querySelectorAll("details.section").forEach(d => d.addEventListener("toggle", () => {
+  if (d.open) d.querySelectorAll("textarea").forEach(autosize);
+}));
+document.getElementById("project-add-btn").onclick = () => {
+  const id = document.getElementById("project-add").value;
+  if (id) { state.projects.push({ id, bullets: PROJECTS[id].bullets.map(t => ({ text: t, orig: t })) }); renderAll(); }
+};
+document.getElementById("group-add").onclick = () => { state.skills.push({ group: "New group", items: [] }); renderAll(); };
+
+document.getElementById("editor").addEventListener("input", e => {
+  const t = e.target;
+  if (t.classList.contains("about-text")) {
+    aboutTexts[t.dataset.style] = t.value; autosize(t);
+    if (t.dataset.style === aboutStyle) { state.about = t.value; renderChanges(); schedulePreview(); }
+    renderSummaries(); markDirty();
+  } else if (t.classList.contains("bullet-text")) {
+    state.projects[t.dataset.p].bullets[t.dataset.b].text = t.value;
+    autosize(t); renderChanges(); renderSummaries(); schedulePreview();
+  } else if (t.classList.contains("group-name")) {
+    state.skills[t.dataset.g].group = t.value; renderChanges(); renderSummaries(); schedulePreview();
+  }
+});
+// Re-draw the "edited" tags once the user leaves a bullet (not on every keystroke - keeps focus).
+document.getElementById("editor").addEventListener("focusout", e => {
+  if (e.target.classList.contains("bullet-text")) renderProjects();
+});
+document.getElementById("editor").addEventListener("click", e => {
+  const a = e.target.closest("button[data-about-style]");
+  if (a) { chooseAbout(a.dataset.aboutStyle); return; }
+  const b = e.target.closest("button[data-act]"); if (!b) return;
+  const { act } = b.dataset, p = +b.dataset.p, bi = +b.dataset.b, g = +b.dataset.g, i = +b.dataset.i;
+  const proj = state.projects[p], grp = state.skills[g];
+  switch (act) {
+    case "p-up": move(state.projects, p, -1); break;
+    case "p-down": move(state.projects, p, 1); break;
+    case "p-del": state.projects.splice(p, 1); break;
+    case "b-up": move(proj.bullets, bi, -1); break;
+    case "b-down": move(proj.bullets, bi, 1); break;
+    case "b-del": proj.bullets.splice(bi, 1); break;
+    case "b-add": {
+      const t = document.querySelector(`select.bullet-add[data-p="${p}"]`).value;
+      proj.bullets.push({ text: t, orig: t }); break;
+    }
+    case "g-up": move(state.skills, g, -1); break;
+    case "g-down": move(state.skills, g, 1); break;
+    case "g-del": state.skills.splice(g, 1); break;
+    case "s-up": move(grp.items, i, -1); break;
+    case "s-del": grp.items.splice(i, 1); break;
+    case "s-add": grp.items.push(document.querySelector(`select.skill-add[data-g="${g}"]`).value); break;
+    default: return;
+  }
+  renderAll();
+});
+
+// ---------- preview ----------
+const frame = document.getElementById("preview");
+const wrap = document.getElementById("frame-wrap"), box = document.getElementById("frame-box");
+// Zoom mode: "whole" shrinks the page to fit the frame entirely; "width" fills the frame's width
+// and scrolls. Remembered per browser (a convenience only - the page works without it).
+let zoomMode = "whole";
+try { zoomMode = localStorage.getItem("resumeZoom") || "whole"; } catch (e) {}
+function fitFrame() {
+  const pad = 24, w = wrap.clientWidth - pad, h = wrap.clientHeight - pad;
+  const scale = zoomMode === "whole" ? Math.min(w / 794, h / 1134) : w / 794;
+  frame.style.transform = `scale(${scale})`;
+  box.style.width = 794 * scale + "px"; box.style.height = 1134 * scale + "px";
+  wrap.className = "frame-wrap " + zoomMode;
+  document.querySelectorAll("[data-zoom]").forEach(b => b.classList.toggle("on", b.dataset.zoom === zoomMode));
+}
+function setZoom(mode) {
+  zoomMode = mode;
+  try { localStorage.setItem("resumeZoom", mode); } catch (e) {}
+  fitFrame();
+}
+document.querySelectorAll("[data-zoom]").forEach(b => b.onclick = () => setZoom(b.dataset.zoom));
+// Click the page: zoom in on the spot clicked, or back out to the whole page.
+box.addEventListener("click", e => {
+  if (zoomMode === "width") { setZoom("whole"); return; }
+  const r = box.getBoundingClientRect(), fy = (e.clientY - r.top) / r.height;
+  setZoom("width");
+  wrap.scrollTop = fy * box.offsetHeight - wrap.clientHeight / 2;
+});
+new ResizeObserver(fitFrame).observe(wrap);
+// The preview column is sticky, so how much screen it has depends on the scroll position: below
+// the nav bar at the top of the page, the full height once scrolled. Size it to what's visible.
+const col = document.querySelector(".preview-col");
+function sizeColumn() {
+  if (getComputedStyle(col).position !== "sticky") { col.style.height = ""; return; }
+  col.style.height = innerHeight - Math.max(col.getBoundingClientRect().top, 16) - 16 + "px";
+}
+addEventListener("scroll", sizeColumn, { passive: true });
+addEventListener("resize", sizeColumn);
+sizeColumn();
+
+let previewTimer, previewSeq = 0, lastCheck = { errors: [], warnings: [] };
+function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(updatePreview, 300); }
+async function updatePreview() {
+  const seq = ++previewSeq;
+  const res = await fetch("{{ url_for('resume.preview') }}", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ selection: selection(), replacements: replacements() }),
+  });
+  const data = await res.json();
+  if (seq !== previewSeq) return;  // a newer edit already asked for a newer preview
+  lastCheck = data;
+  if (data.html) frame.srcdoc = data.html;
+  showMessages(data.errors.map(m => ["err", m]).concat(data.warnings.map(m => ["warn", m])));
+  if (!data.html) setFit(null);
+  markDirty();
+}
+// Same measurement as render.py: how far each column ends above the page bottom.
+frame.addEventListener("load", async () => {
+  const doc = frame.contentDocument; if (!doc || !doc.querySelector(".page")) return;
+  await doc.fonts.ready;
+  const pageBottom = doc.querySelector(".page").getBoundingClientRect().bottom;
+  const last = id => Math.max(...[...doc.getElementById(id).children].map(k => k.getBoundingClientRect().bottom));
+  const px = 96 / 25.4;
+  const about = doc.getElementById("about");
+  const aboutLines = about ? Math.round(about.getBoundingClientRect().height / parseFloat(getComputedStyle(about).lineHeight)) : 0;
+  setFit(Math.min((pageBottom - last("main")) / px, (pageBottom - last("sidebar")) / px), aboutLines);
+});
+const MAX_ABOUT_LINES = 4;  // same limit render.py enforces on Save
+function setFit(freeMm, aboutLines = 0) {
+  const el = document.getElementById("fit");
+  if (freeMm === null) { el.textContent = ""; el.className = "fit"; return; }
+  if (aboutLines > MAX_ABOUT_LINES) {
+    el.textContent = `About Me is ${aboutLines} lines - max ${MAX_ABOUT_LINES}`; el.className = "fit bad"; return;
+  }
+  el.textContent = freeMm >= 0 ? `Fits on one page · ${freeMm.toFixed(1)} mm free · About Me ${aboutLines}/${MAX_ABOUT_LINES} lines`
+    : `Too long by ${(-freeMm).toFixed(1)} mm`;
+  el.className = "fit " + (freeMm >= 0 ? "ok" : "bad");
+}
+function showMessages(list) {
+  document.getElementById("msgs").innerHTML = list.map(([cls, m]) => `<div class="${cls}">${esc(m)}</div>`).join("");
+}
+
+// ---------- save ----------
+let savedJson;  // set after loadState, from selection() - same key order as what it's compared with
+let savedAbout;  // the About Me cards as last saved (job mode)
+const aboutJson = () => JSON.stringify({ style: aboutStyle, texts: aboutTexts });
+function markDirty() {
+  const dirty = JSON.stringify(selection()) !== savedJson || replacements().length > 0
+    || (MODE === "job" && savedAbout !== undefined && aboutJson() !== savedAbout);
+  document.getElementById("saved-state").textContent = dirty ? "Unsaved changes" : "Saved";
+}
+window.addEventListener("beforeunload", e => {
+  if (document.getElementById("saved-state").textContent === "Unsaved changes") e.preventDefault();
+});
+async function post(url, body) {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  return res.json();
+}
+async function withBusy(btn, label, fn) {
+  const text = btn.textContent; btn.disabled = true; btn.textContent = label;
+  try { await fn(); } finally { btn.disabled = false; btn.textContent = text; }
+}
+function savedOk(data, what) {
+  savedJson = JSON.stringify(selection()); savedAbout = aboutJson();
+  showMessages([["ok", `${what} - the PDF was rebuilt (${data.free_mm} mm free).`]]
+    .concat((data.warnings || []).map(m => ["warn", m])));
+  document.getElementById("open-pdf").hidden = document.getElementById("dl-pdf").hidden = false;
+  renderProjects(); markDirty();
+}
+
+if (MODE === "main") {
+  document.getElementById("save").onclick = e => withBusy(e.currentTarget, "Saving…", async () => {
+    const reps = replacements();
+    if (reps.length && !confirm(`This changes the approved wording of ${reps.length} bullet(s) for every future resume:\n\n` +
+        reps.map(r => `- ${r.new}`).join("\n") + "\n\nSave?")) return;
+    const data = await post("{{ url_for('resume.save') }}", { selection: selection(), replacements: reps });
+    if (!data.ok) { showMessages(data.errors.map(m => ["err", "Not saved: " + m])); return; }
+    // Approved wording changed: the bullets' new text is now their approved text.
+    for (const r of reps) { const proj = PROJECTS[r.project]; proj.bullets[proj.bullets.indexOf(r.old)] = r.new; }
+    for (const p of state.projects) for (const b of p.bullets) if (b.orig !== null) b.orig = b.text.trim();
+    savedOk(data, "Saved");
+  });
+} else {
+  {% if record %}
+  const saveJob = approve => async () => {
+    const data = await post("{{ url_for('resume.job_save', job_id=record.job.id) }}",
+      { selection: selection(), approve, about_style: aboutStyle, about_texts: aboutTexts });
+    if (!data.ok) { showMessages(data.errors.map(m => ["err", "Not saved: " + m])); return; }
+    jobStatus = data.status; renderStatus();
+    savedOk(data, approve ? "Approved - this is the version to send" : "Draft saved");
+  };
+  document.getElementById("save").onclick = e => withBusy(e.currentTarget, "Saving…", saveJob(false));
+  document.getElementById("approve").onclick = e => withBusy(e.currentTarget, "Approving…", saveJob(true));
+  const loadDraft = () => {
+    loadState(DRAFT.selection);
+    aboutTexts = { strengths: draftAbout("strengths"), personal: draftAbout("personal"), main: MAIN.about };
+    aboutStyle = aboutTexts.strengths != null ? "strengths" : "main"; state.about = aboutTexts[aboutStyle];
+    renderAll();
+  };
+  // "Use this wording": swap the approved bullet for the suggestion, for this job only.
+  document.getElementById("ai-body").addEventListener("click", e => {
+    const b = e.target.closest("button[data-sugg]"); if (!b) return;
+    const s = DRAFT.rewordings[+b.dataset.sugg];
+    const proj = state.projects.find(p => p.id === s.project);
+    const bullet = proj && proj.bullets.find(x => x.text.trim() === s.original);
+    if (!bullet) { showMessages([["warn", "That bullet isn't on the resume right now - add it back first."]]); return; }
+    bullet.text = s.text; renderAll();
+    showMessages([["ok", "Rewording applied for this job only - it shows as \"edited for this job only\"."]]);
+  });
+  document.getElementById("ai-load").onclick = () => {
+    if (!confirm("Replace what's in the editor with the AI draft?")) return;
+    loadDraft();
+  };
+  document.getElementById("ai-run").onclick = e => withBusy(e.currentTarget, "Drafting…", async () => {
+    if (jobStatus !== "none" && !confirm("Draft a new version with AI? It will replace what's in the editor (your saved version stays saved until you save again).")) return;
+    document.getElementById("ai-body").innerHTML = '<p class="ai-busy">Reading the job description and drafting - this takes about 20-40 seconds…</p>';
+    try {
+      const data = await post("{{ url_for('resume.job_draft', job_id=record.job.id) }}", {});
+      if (!data.ok) { showMessages([["err", "Drafting failed: " + data.error]]); renderDraft(); return; }
+      DRAFT = data.draft; renderDraft(); loadDraft();
+      showMessages([["ok", "AI draft loaded into the editor - review it, then Save draft or Approve."]]);
+    } catch (err) { showMessages([["err", "Drafting failed: " + err]]); renderDraft(); }
+  });
+  document.getElementById("reset-main").onclick = () => {
+    if (!confirm("Throw away this job's changes and start again from your main resume?")) return;
+    loadState(MAIN); aboutTexts.main = MAIN.about; aboutStyle = "main"; renderAll();
+  };
+  // "Make this my main resume" sits under the changes list.
+  const mk = document.createElement("button");
+  mk.type = "button"; mk.className = "make-main"; mk.textContent = "Make this my main resume";
+  mk.title = "Use this job's version as your main resume from now on";
+  document.getElementById("changes").after(mk);
+  mk.onclick = e => withBusy(e.currentTarget, "Saving…", async () => {
+    if (!confirm("Replace your main resume with this version? Future job resumes will start from it.")) return;
+    const data = await post("{{ url_for('resume.job_make_main', job_id=record.job.id) }}", { selection: selection() });
+    if (!data.ok) { showMessages(data.errors.map(m => ["err", "Main not changed: " + m])); return; }
+    const s = selection(); MAIN.about = s.about; MAIN.projects = s.projects; MAIN.skills = s.skills;
+    aboutTexts.main = MAIN.about; renderAboutOptions(); renderChanges(); renderSummaries();
+    showMessages([["ok", "This is now your main resume."]]);
+  });
+  {% endif %}
+}
+
+loadState(SAVED); savedJson = JSON.stringify(selection());
+if (MODE === "job") { initAbout(); savedAbout = aboutJson(); }
+// A job resume that was never saved has nothing on disk yet - it counts as unsaved.
+if (MODE === "job" && jobStatus === "none") savedJson = null;
+renderAboutVersions(); renderAll(); renderStatus(); renderDraft(); fitFrame();
+</script>
+</body>
+</html>

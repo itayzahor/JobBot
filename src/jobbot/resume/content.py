@@ -74,6 +74,8 @@ def check(selection: dict, blocks: dict) -> CheckResult:
         if project is None:
             result.errors.append(f"unknown project '{p['id']}'")
             continue
+        if project.get("unavailable"):
+            result.warnings.append(f"'{project['title']}' is marked unavailable: {project['unavailable']}")
         if p["id"] in seen:
             result.errors.append(f"project '{project['title']}' is selected twice")
         seen.add(p["id"])
