@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ r.name }} - Resume</title>
+<style>
+  /* Poppins is embedded (base64) so the PDF never depends on the network or installed fonts. */
+  @font-face { font-family: "Poppins"; font-weight: 400; src: url(data:font/ttf;base64,{{ fonts.regular }}) format("truetype"); }
+  @font-face { font-family: "Poppins"; font-weight: 700; src: url(data:font/ttf;base64,{{ fonts.bold }}) format("truetype"); }
+
+  /* Same page size as the Google Slides resume (210 x 300 mm). */
+  @page { size: 210mm 300mm; margin: 0; }
+  :root {
+    --text: #0e101a;
+    --rule: #666666;
+    --link: #0e97a8;
+    --sidebar: #efefef;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #ffffff; }
+  /* Slides' "115%" spacing is relative to Poppins' tall natural line height - about 1.35 in CSS. */
+  body { font-family: "Poppins", sans-serif; font-size: 11pt; line-height: 1.35; color: var(--text); }
+  a { color: var(--link); text-decoration: underline; }
+
+  .page { position: relative; width: 210mm; height: 300mm; overflow: hidden; }
+
+  /* Main column */
+  .main { position: absolute; left: 0; top: 0; width: 149.7mm; height: 300mm; padding: 0 8.5mm 0 8mm; }
+  .name { height: 20.5mm; display: flex; align-items: center; justify-content: center;
+          font-size: 18pt; font-weight: 700; padding-top: 2mm; }
+  section { border-top: 1px solid var(--rule); padding: 3.6mm 0 4.4mm; }
+  h2 { font-size: 13pt; font-weight: 700; margin: 0; line-height: 1.3; }
+  section p { margin: 0; line-height: 1.4; }
+  .entry + .entry { margin-top: 4.5mm; }
+  .entry-title { margin: 0; }
+
+  ul { list-style: none; margin: 0; padding: 0 0 0 36pt; }
+  li { position: relative; }
+  li::before { content: ""; position: absolute; left: -22pt; top: 0.6em;
+               width: 4.6pt; height: 4.6pt; border-radius: 50%; background: currentColor; }
+
+  /* Sidebar */
+  .sidebar { position: absolute; left: 149.7mm; top: 0; width: 60.3mm; height: 300mm;
+             background: var(--sidebar); border-left: 1px dotted var(--rule);
+             padding: 20.5mm 3mm 0 4.6mm; }
+  .group { border-top: 1px solid var(--rule); padding: 1.6mm 0 3.6mm; }
+  .group h3 { font-size: 11pt; font-weight: 700; margin: 0; }
+  .group div { margin: 0; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="main" id="main">
+    <div class="name">{{ r.name }}</div>
+
+    <section>
+      <h2>About Me</h2>
+      <p>{{ r.about }}</p>
+    </section>
+
+    <section>
+      <h2>Education</h2>
+      <p>{{ r.education }}</p>
+    </section>
+
+    <section>
+      <h2>Projects</h2>
+      {% for p in r.projects %}
+      <div class="entry">
+        <p class="entry-title">{{ p.title }}</p>
+        <ul>
+          {% for b in p.bullets %}<li>{{ b }}</li>{% endfor %}
+          {% if p.link %}<li>Link: <a href="{{ p.link.url }}">{{ p.link.text }}</a></li>{% endif %}
+        </ul>
+      </div>
+      {% endfor %}
+    </section>
+
+    <section>
+      <h2>{{ r.military.heading }}</h2>
+      <p class="entry-title">{{ r.military.title }}</p>
+      <ul>
+        {% for b in r.military.bullets %}<li>{{ b }}</li>{% endfor %}
+      </ul>
+    </section>
+  </div>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="group">
+      <h3>Contact</h3>
+      <div>Phone: {{ r.contact.phone }}</div>
+      <div>Email:</div>
+      <div><a href="mailto:{{ r.contact.email }}">{{ r.contact.email }}</a></div>
+      {% for l in r.contact.links %}<div><a href="{{ l.url }}">{{ l.text }}</a></div>{% endfor %}
+    </div>
+
+    {% for g in r.skills %}
+    <div class="group">
+      <h3>{{ g.group }}</h3>
+      {% for item in g["items"] %}<div>{{ item }}</div>{% endfor %}
+    </div>
+    {% endfor %}
+
+    <div class="group">
+      <h3>Languages</h3>
+      {% for lang in r.languages %}<div>{{ lang }}</div>{% endfor %}
+    </div>
+  </aside>
+</div>
+</body>
+</html>

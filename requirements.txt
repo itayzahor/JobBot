@@ -50,3 +50,5 @@ google-auth-oauthlib==1.5.0
 langgraph==1.2.20
 langchain-core==1.7.6
 langchain-google-genai==4.4.3
+playwright==1.65.0
+pypdf==7.0.0

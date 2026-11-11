@@ -1,0 +1,33 @@
+{
+  "name": "Dana Example",
+  "about": "Software Engineer who builds backend services and data tools. Enjoys turning messy real-world problems into simple, reliable products.",
+  "education": "B.Sc. in Computer Science @ Example University (2022 – 2026)",
+  "projects": [
+    {
+      "title": "Trail Planner – Route Recommendation App",
+      "bullets": [
+        "Built a FastAPI service that recommends hiking routes from weather and difficulty data.",
+        "Designed a PostgreSQL schema for routes, reviews and user preferences."
+      ],
+      "link": {"text": "github.com/example/trail-planner", "url": "https://github.com/example/trail-planner"}
+    }
+  ],
+  "military": {
+    "heading": "Military Service",
+    "title": "Example Unit (2018 - 2021)",
+    "bullets": ["Led a small team through demanding field operations."]
+  },
+  "contact": {
+    "phone": "+972 50-0000000",
+    "email": "dana@example.com",
+    "links": [
+      {"text": "LinkedIn", "url": "https://www.linkedin.com/in/example/"},
+      {"text": "Github", "url": "https://github.com/example"}
+    ]
+  },
+  "skills": [
+    {"group": "Programming", "items": ["Python", "SQL"]},
+    {"group": "Backend", "items": ["FastAPI"]}
+  ],
+  "languages": ["Hebrew (native)", "English (fluent)"]
+}

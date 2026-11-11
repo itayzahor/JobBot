@@ -692,6 +692,24 @@ files (code comments, prompt examples and tests use made-up companies).**
   and privacy-policy URL for that, hence `PRIVACY.md`). Token/credentials files live in gitignored
   `data/`.
 
+## Resume rendering (`src/jobbot/resume/`) - first step of resume tailoring
+Content and layout are separate: a resume is JSON data, `template.html` is the design (a copy of
+the user's Google Slides resume: Poppins, 210x300mm page, grey sidebar), and `render.py` turns it
+into a PDF with headless Chromium (Playwright `page.pdf()`). Chosen over editing Google Slides via
+its API: the Slides resume is one big text box (bullet edits mean character-index surgery), the API
+can't tell when text overflows the page, and the Slides print path had lost the LinkedIn link.
+- **Every render is checked** and raises `ResumeCheckError` instead of returning a broken resume:
+  main column and sidebar each end above the page bottom (reports free mm - the tailoring step
+  will use it to decide whether to drop a bullet), the PDF is 1 page, every URL in the data is a
+  real link annotation in the PDF (read back with pypdf), and Poppins actually loaded.
+- Fonts are bundled in `resume/fonts/` (OFL) and embedded base64, so rendering needs no network.
+- Slides' "115%" line spacing is relative to Poppins' tall natural line height - about 1.35 in CSS.
+- `scripts/render_resume.py <json> [-o out.pdf]` renders by hand. The user's real base resume is
+  `data/resume/base.json` (gitignored - personal); `resume/example_resume.json` is a made-up one.
+- The rules for what tailoring may change per section (fixed blocks, About Me rewritten, projects
+  picked with frozen bullets, skills sidebar built per job) live in `data/profile.md` under
+  "## Resume". The tailoring agent itself is not built yet.
+
 ## Rejected: Secret Hunter (secrethunter.io)
 Investigated as an extra source; not pursued. Its `/jobs/search` endpoint has no public API - the
 frontend calls it via POST with an `x-recaptcha-verified-token` header, and the server 403s
