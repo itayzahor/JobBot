@@ -69,6 +69,15 @@ def run(force: bool = False, hours_old: int | None = None) -> None:
 
     expired = db.expire_old_new_jobs(conn, config.MAX_JOB_AGE_DAYS)
     cleaned_up = db.cleanup_old_rows(conn)
+    # Resume files go with their job rows (resume/job_resumes.py). Never fatal for the scrape.
+    try:
+        from jobbot.resume import job_resumes
+
+        removed = job_resumes.cleanup(conn)
+        if any(removed.values()):
+            print(f"Resume cleanup: {removed}")
+    except Exception as e:
+        print(f"[warning] resume cleanup failed: {type(e).__name__}: {e}")
     conn.close()
     scrape_state.set_last_scrape_time(datetime.now(timezone.utc))
     print(

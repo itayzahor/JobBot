@@ -60,11 +60,9 @@ def _render_checked(selection: dict, blocks: dict, pdf: Path):
     try:
         result = render.render(content.assemble(selection, blocks), tmp)
     except render.ResumeCheckError as e:
-        for p in (tmp, tmp.with_suffix(".html")):
-            p.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
         return None, str(e)
     os.replace(tmp, pdf)
-    os.replace(tmp.with_suffix(".html"), pdf.with_suffix(".html"))
     return result, None
 
 
@@ -165,7 +163,7 @@ def job_page(job_id):
     if _locked(job_id, record):
         sent = record.get("status") == "sent"
         return render_template("resume_sent.html", record=record, sent=sent,
-                               has_pdf=sent and job_resumes.pdf_path(job_id).exists())
+                               has_pdf=sent and job_resumes.sent_pdf_path(job_id).exists())
     draft = job_resumes.load_draft(job_id)
     # Not saved yet but the agent drafted one: open with the draft in the editor (unsaved).
     selection = draft["selection"] if draft and not record["created_at"] else record["selection"]
@@ -247,4 +245,5 @@ def job_make_main(job_id):
 
 @bp.route("/resume/job/<job_id>/pdf")
 def job_pdf(job_id):
-    return _pdf_response(job_resumes.pdf_path(job_id))
+    # A resume sent as the main resume lives in the shared main-version copy, not under jobs/.
+    return _pdf_response(job_resumes.sent_pdf_path(job_id))

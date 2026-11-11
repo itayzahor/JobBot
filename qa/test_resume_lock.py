@@ -1,4 +1,6 @@
-"""Resume lock: once a job is applied to, its resume is frozen as "sent" and can't be changed.
+"""Resume lock + storage: once a job is applied to, its resume is frozen as "sent" and can't be
+changed; applications sent with the main resume share one copy per main-resume version; resume
+files are deleted together with their job rows; no HTML copies are kept.
 
 Runs every apply path's shared function (db.mark_applied / db.undo_applied) and the dashboard routes
 against a throwaway DB and a throwaway resume folder with made-up content - nothing real is
@@ -76,9 +78,26 @@ def main():
     # --- apply: freeze ---
     db.mark_applied(conn, no_resume)
     r = job_resumes.load(no_resume)
-    check("no saved resume -> the main resume is frozen as sent",
-          r and r["status"] == "sent" and r["sent_source"] == "main resume" and r["selection"] == main_sel)
-    check("  ...and its PDF exists", job_resumes.pdf_path(no_resume).exists())
+    check("no saved resume -> sent as the main resume, pointing to a main version",
+          r and r["status"] == "sent" and r["sent_source"] == "main resume" and r.get("main_version"))
+    check("  ...the shared version's PDF exists, and no per-job copy",
+          job_resumes.sent_pdf_path(no_resume).exists() and not job_resumes.pdf_path(no_resume).exists())
+
+    # More applications with the same main resume share that one copy
+    more = [add_job(conn, n) for n in (5, 6, 7)]
+    for j in more:
+        db.mark_applied(conn, j)
+    versions = list((TMP / "resume" / "main_versions").glob("*.pdf"))
+    check("4 applications with one main resume -> 1 stored copy", len(versions) == 1)
+
+    # Editing the main resume -> a new version for applications from now on; old ones keep theirs
+    edited = dict(main_sel, about="Software Engineer who builds data-driven applications.")
+    (TMP / "resume" / "main.json").write_text(json.dumps(edited), encoding="utf-8")
+    later = add_job(conn, 8)
+    db.mark_applied(conn, later)
+    check("main resume edited -> a second version for the next application",
+          len(list((TMP / "resume" / "main_versions").glob("*.pdf"))) == 2
+          and job_resumes.load(later)["main_version"] != job_resumes.load(no_resume)["main_version"])
 
     db.mark_applied(conn, approved)
     r = job_resumes.load(approved)
@@ -116,8 +135,21 @@ def main():
     db.undo_applied(conn, approved)
     check("undo apply -> the approved resume is unlocked again", job_resumes.load(approved)["status"] == "approved")
     db.undo_applied(conn, no_resume)
-    check("undo apply -> the frozen main-resume copy is removed",
-          job_resumes.load(no_resume) is None and not job_resumes.pdf_path(no_resume).exists())
+    check("undo apply -> the record is removed, the shared version stays (others use it)",
+          job_resumes.load(no_resume) is None and len(list((TMP / "resume" / "main_versions").glob("*.pdf"))) == 2)
+
+    check("no HTML copies are kept anywhere", not list((TMP / "resume").rglob("*.html")))
+
+    # --- retention: resume files go with their job rows ---
+    conn.execute("DELETE FROM jobs WHERE id IN (?, ?, ?, ?)", (approved, *more))  # as the 7/90-day cleanup would
+    conn.commit()
+    removed = job_resumes.cleanup(conn)
+    check("cleanup removes the files of jobs no longer in the DB",
+          job_resumes.load(approved) is None and not job_resumes.pdf_path(approved).exists()
+          and all(job_resumes.load(j) is None for j in more))
+    check("  ...keeps the main version still in use, removes the one nobody uses",
+          removed["main_versions"] == 2 and job_resumes.sent_pdf_path(later).exists())
+    check("  ...and leaves live jobs alone", job_resumes.load(later) is not None)
     conn.close()
 
     print(f"\n{'ALL PASSED' if not FAILURES else f'{len(FAILURES)} FAILED'} (throwaway data in {TMP})")

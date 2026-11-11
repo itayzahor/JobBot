@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
     out = args.out or args.resume_json.with_suffix(".pdf")
     try:
-        result = resume_render.render(data, out)
+        result = resume_render.render(data, out, keep_html=out.with_suffix(".html"))
     except resume_render.ResumeCheckError as e:
         print(f"FAILED: {e}")
         sys.exit(1)

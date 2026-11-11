@@ -15,6 +15,7 @@ Every render is checked, and a failed check raises instead of handing back a bro
 
 import base64
 import json
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,7 +40,7 @@ class ResumeCheckError(Exception):
 
 @dataclass
 class RenderResult:
-    html_path: Path
+    html_path: Path | None  # only when the caller asked to keep the HTML (render_resume.py)
     pdf_path: Path
     main_free_mm: float     # empty space left at the bottom of the main column
     sidebar_free_mm: float  # same for the sidebar
@@ -78,11 +79,18 @@ def pdf_links(pdf_path: Path) -> tuple[int, list[str]]:
     return len(reader.pages), urls
 
 
-def render(resume: dict, out_pdf: Path) -> RenderResult:
-    """Render `resume` to `out_pdf` (plus an .html next to it) and run every check."""
+def render(resume: dict, out_pdf: Path, keep_html: Path | None = None) -> RenderResult:
+    """Render `resume` to `out_pdf` and run every check. The HTML it renders from (~420 KB - the
+    font is embedded) is a temporary file unless `keep_html` names where to keep it: nothing in
+    the app uses it after the PDF exists, and a copy per resume was 95% of the disk they used."""
     out_pdf = Path(out_pdf).resolve()
     out_pdf.parent.mkdir(parents=True, exist_ok=True)
-    html_path = out_pdf.with_suffix(".html")
+    tmp_dir = None
+    if keep_html:
+        html_path = Path(keep_html).resolve()
+    else:
+        tmp_dir = tempfile.TemporaryDirectory()
+        html_path = Path(tmp_dir.name) / "resume.html"
     html_path.write_text(build_html(resume), encoding="utf-8")
 
     with sync_playwright() as p:
@@ -103,6 +111,9 @@ def render(resume: dict, out_pdf: Path) -> RenderResult:
         about_lines = page.evaluate(_ABOUT_LINES_JS)
         page.pdf(path=str(out_pdf), width="210mm", height="300mm", print_background=True)
         browser.close()
+    if tmp_dir:
+        tmp_dir.cleanup()
+        html_path = None
 
     pages, links = pdf_links(out_pdf)
     result = RenderResult(html_path, out_pdf, free["main"] / PX_PER_MM, free["sidebar"] / PX_PER_MM,

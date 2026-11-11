@@ -25,6 +25,9 @@ RESUME_DIR = Path(os.environ.get("JOBBOT_RESUME_DIR", DATA_DIR / "resume"))
 RESUME_BLOCKS_PATH = RESUME_DIR / "blocks.json"
 RESUME_MAIN_PATH = RESUME_DIR / "main.json"
 RESUME_JOBS_DIR = RESUME_DIR / "jobs"
+# One copy per distinct version of the main resume that was sent with an application - many
+# applications share it instead of each keeping its own copy.
+RESUME_MAIN_VERSIONS_DIR = RESUME_DIR / "main_versions"
 # Gmail agent. The credentials file is the OAuth client downloaded from Google Cloud; the token is
 # created on first login and is the real key to the mailbox - both stay in gitignored data/.
 GMAIL_CREDENTIALS_PATH = DATA_DIR / "gmail_credentials.json"
