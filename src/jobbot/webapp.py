@@ -109,6 +109,8 @@ def dashboard():
         last_scraped=last_scraped,
         scraping=_scraping_in_progress,
         default_max_age_days=config.MAX_JOB_AGE_DAYS,
+        added=request.args.get("added"),
+        status_tab=_STATUS_TAB,
     )
 
 
@@ -225,6 +227,50 @@ def clear_old():
     db.expire_old_new_jobs(conn, days)
     conn.close()
     return redirect(url_for("dashboard"))
+
+
+_LINKEDIN_JOB_ID = re.compile(r"linkedin\.com/.*?(?:jobs/view/(?:[^/?]*-)?|currentJobId=)(\d{6,})")
+_STATUS_TAB = {"new": "New", "applied": "Applied", "process": "Processes", "closed": "Closed"}
+
+
+def _normalize_job_url(url: str) -> tuple[str, str]:
+    """(url, site) for a job added by hand. A LinkedIn link is rewritten to the exact form the
+    scraper stores (https://www.linkedin.com/jobs/view/<id>), whatever page it was copied from
+    (search results, a tracking-laden share link), so the same job found by a later scrape is
+    recognized as a duplicate instead of showing up twice."""
+    m = _LINKEDIN_JOB_ID.search(url)
+    if m:
+        return f"https://www.linkedin.com/jobs/view/{m.group(1)}", "linkedin"
+    return url, "indeed" if "indeed." in url.lower() else "manual"
+
+
+@app.route("/add_job", methods=["POST"])
+def add_job():
+    """A job the scraper didn't find, filled in by hand. Lands on New like any scraped job (so it
+    can be tailored, applied to and tracked), skipping the filter - adding it means you already
+    want it. If it's already in the DB but was hidden (rejected by the filter, deleted, expired),
+    it's brought back to New."""
+    form = {k: (request.form.get(k) or "").strip() for k in ("url", "title", "company", "location", "description")}
+    if not (form["url"] and form["title"] and form["company"]):
+        return redirect(url_for("dashboard", added="missing"))
+    url, site = _normalize_job_url(form["url"])
+    job = {**form, "url": url, "site": site, "decision": "yes", "reason": db.MANUAL_REASON,
+           "location": form["location"] or None, "description": form["description"] or None}
+    conn = db.get_connection()
+    job_id = db.hash_url(url)
+    if db.insert_job(conn, job):
+        result = "ok"
+    else:
+        status = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()[0]
+        if status in ("rejected", "deleted"):
+            db.update_status(conn, job_id, "new")
+            conn.execute("UPDATE jobs SET reason = ? WHERE id = ?", (db.MANUAL_REASON, job_id))
+            conn.commit()
+            result = "restored"
+        else:
+            result = status  # already new / applied / process / closed - say where it is
+    conn.close()
+    return redirect(url_for("dashboard", added=result) + f"#job-{job_id}")
 
 
 @app.route("/delete/<job_id>", methods=["POST"])

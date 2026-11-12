@@ -46,9 +46,6 @@ MAX_PROJECTS = 2
 # enforces them; _fit() never drops them.
 CORE_SKILLS = ("Java", "Python", "SQL", "Git", "GitHub", "Claude Code")
 MAX_EXTRAS = 10  # extras fill leftover sidebar space; _fit() trims them from the least relevant end
-# Real skills that only make sense when a posting asks for them - never used as filler (a Gmail API
-# filler on a data science resume read oddly to the user).
-ASKED_ONLY = {"Gmail API", "Playwright"}
 MAX_ROLE_SKILLS = 3          # "typical for this role, not named in the posting" - kept few
 COURSEWORK_GROUP = "Relevant Coursework"
 MAX_COURSES = 4
@@ -115,9 +112,9 @@ class TailoredDraft(BaseModel):
 SYSTEM_INSTRUCTION = """You tailor a candidate's one-page resume to a specific job posting.
 
 You get, each in its own tag: <profile> (the truth about the candidate - only claim what it
-shows), <resume_blocks> (the approved projects with numbered bullets and the skills each used, and
-the skill pool), <main_about> (their main About Me - the style and length to match),
-<length_limit>, and <job_posting>.
+shows), <resume_blocks> (the approved projects with numbered bullets, the skills each used and
+which of those the candidate is comfortable using as fillers, and the skill pool), <main_about>
+(their main About Me - the style and length to match), <length_limit>, and <job_posting>.
 
 Work in this order:
 1. requirements: list the posting's real requirements (skills, technologies, kinds of experience,
@@ -152,7 +149,8 @@ Work in this order:
    - "core": Java, Python, SQL, Git, GitHub, Claude Code - always included, whatever the job.
      Nothing else is core.
    - "role": typical for this kind of role even though the posting doesn't name it (e.g. React for
-     a full-stack role). At most 3 in total; because = why. Leave everything else out - e.g. don't
+     a full-stack role). Only skills from the chosen projects' "fillers" lists. At most 3 in
+     total; because = why. Leave everything else out - e.g. don't
      list several databases or front-end frameworks the posting gives no reason for.
    Also add a group named exactly "Relevant Coursework" with 2-4 courses from that pool group, the
    ones most relevant to this job (e.g. cyber -> Secure Programming, Computer Networks; AI ->
@@ -160,11 +158,12 @@ Work in this order:
    Order ALL groups - including Relevant Coursework, AI-Assisted Development and Development Tools -
    from most to least relevant to THIS job; the least relevant group is cut first if space runs
    out.
-   extras: then rank up to 10 MORE pool skills (not already used), most relevant to this kind of
-   job first, layer "extra", because = what they show. ONLY skills that the 2 projects you chose
-   actually used (their "skills this project used" lists) - fillers must be things the candidate
-   can explain from a project on this resume. Code adds them to fill leftover sidebar space and
-   cuts them first, so a job that asks for little still gets a full sidebar.
+   extras: then rank up to 10 MORE skills (not already used), most relevant to this kind of job
+   first, layer "extra", because = what they show. ONLY skills in the "fillers" lists of the 2
+   projects you chose - the ones the candidate is comfortable talking about from a project on this
+   resume. Their other skills appear only when the posting asks for them. Code adds them to fill
+   leftover sidebar space and cuts them first, so a job that asks for little still gets a full
+   sidebar.
    Prefer fewer, fuller groups: avoid a group with a single item (Claude Code alone under
    AI-Assisted Development is fine). Never invent combined group names - use the pool's group
    names. Never name the programming-language group "Languages". Never add a skill the candidate
@@ -246,6 +245,7 @@ def _blocks_for_prompt(blocks: dict) -> str:
         lines += [f"    {i}. {b}" for i, b in enumerate(p["bullets"], 1)]
         if p.get("skills"):
             lines.append(f"    skills this project used: {', '.join(p['skills'])}")
+            lines.append(f"    fillers (comfortable talking about): {', '.join(p.get('fillers', [])) or 'none'}")
     lines.append("\nSKILL POOL (group: items):")
     lines += [f"- {g['group']}: {', '.join(g['items'])}" for g in blocks["skill_pool"]]
     return "\n".join(lines)
@@ -266,6 +266,10 @@ def _call_model(prompt: str, schema=None, system: str | None = None):
                     response_mime_type="application/json",
                     response_schema=schema or TailoredDraft,
                     temperature=0,
+                    # "low" halves drafting time (~17s vs 30-55s) with the same picks - compared
+                    # on the 3 test jobs 2026-11-12: same projects, near-identical sidebar, same
+                    # requirement calls, equivalent About Me.
+                    thinking_config=types.ThinkingConfig(thinking_level="low"),
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 ),
             )
@@ -285,7 +289,7 @@ def _call_model(prompt: str, schema=None, system: str | None = None):
     raise RuntimeError("unreachable")
 
 
-_C_RE = re.compile(r"(?<![\w+#.])C(?![\w+#])")  # the language C, not C++ / C# / "C-level"
+_C_RE = re.compile(r"(?<![\w+#.])C(?![\w+#-])")  # the language C, not C++ / C# / "C-level"
 _ABOUT_RED_FLAGS = [(re.compile(r"\bpassionate\b", re.I), 'uses "passionate"'),
                     (re.compile(r"\b\d+\+?\s*(years?|yrs)\b", re.I), "mentions years of experience"),
                     (re.compile(r"\b(graduate|student|aspiring|junior|entry[- ]level)\b", re.I),
@@ -338,7 +342,12 @@ def _to_selection(draft: TailoredDraft, blocks: dict, job: dict, notes: list[str
     pool = {item for g in blocks["skill_pool"] for item in g["items"]}
     courses = next((set(g["items"]) for g in blocks["skill_pool"] if g["group"] == COURSEWORK_GROUP), set())
     pool_group = {item: g["group"] for g in blocks["skill_pool"] for item in g["items"]}
-    names_c = bool(_C_RE.search(f"{job.get('title', '')}\n{job.get('description', '')}"))
+    # Unescape Markdown first: scraped descriptions write C# as "C\#", which would read as plain C.
+    # Fillers: per project, the skills the user is comfortable talking about (blocks.json
+    # "fillers") - only from the projects on this resume. Any other skill needs the posting to ask
+    # for it (asked/related); "role" and "extra" items must be fillers.
+    fillers = {s for c in chosen for s in projects[c["id"]].get("fillers", [])}
+    names_c = bool(_C_RE.search(f"{job.get('title', '')}\n{job.get('description', '')}".replace("\\", "")))
     skills, used, picked_courses, role_count = [], set(), [], 0
     for g in draft.skills:
         name = g.group.strip()
@@ -360,6 +369,8 @@ def _to_selection(draft: TailoredDraft, blocks: dict, job: dict, notes: list[str
                 notes.append("Dropped 'C' from the sidebar - the job doesn't ask for C")
             elif it.layer == "core" and item not in CORE_SKILLS:
                 notes.append(f"Dropped '{item}' - the posting gives no reason for it")
+            elif it.layer == "role" and item not in fillers and item not in CORE_SKILLS:
+                notes.append(f"Dropped '{item}' - the posting doesn't ask for it, and it's an only-if-asked skill")
             elif it.layer == "role" and role_count >= MAX_ROLE_SKILLS:
                 notes.append(f"Dropped '{item}' - already {MAX_ROLE_SKILLS} skills the posting doesn't name")
             else:
@@ -392,12 +403,11 @@ def _to_selection(draft: TailoredDraft, blocks: dict, job: dict, notes: list[str
     # Extras: fill leftover space, most relevant first. Each joins its usual group (or a new group
     # at the end); _fit() removes them, least relevant first, before touching anything else.
     extras_added = []
-    shown = {s for c in chosen for s in projects[c["id"]].get("skills", [])}  # fillers must be explainable
     for it in draft.extras[:MAX_EXTRAS]:
         item = it.name
         if item not in pool or item in used or item in courses or (item == "C" and not names_c):
             continue
-        if item not in shown or item in ASKED_ONLY:
+        if item not in fillers:
             continue
         target = next((g for g in skills if g["group"] == pool_group[item]), None)
         if target is None:
@@ -408,7 +418,7 @@ def _to_selection(draft: TailoredDraft, blocks: dict, job: dict, notes: list[str
         extras_added.append(item)
         reasons[item] = {"layer": "extra", "because": it.because}
     extras_set = set(extras_added)
-    _fix_lonely_groups(skills, blocks, shown, extras_set, reasons)
+    _fix_lonely_groups(skills, blocks, fillers, extras_set, reasons)
     extras_added += [i for i in extras_set if i not in extras_added]  # top-ups are trimmed first too
     reasons["_extras_order"] = extras_added
     for g in skills:
@@ -462,14 +472,14 @@ def _fit_about(selection: dict, blocks: dict, options: dict, notes: list[str]) -
 
 
 # A one-item group is allowed for these; any other lone item gets company from its own pool group
-# (fillers the chosen projects used) - groups are never merged under joined titles (user preference).
+# (fillers of the projects on this resume) - groups are never merged under joined titles (user preference).
 _LONE_OK = ("AI-Assisted Development", COURSEWORK_GROUP)
 
 
-def _fix_lonely_groups(skills: list[dict], blocks: dict, shown: set[str], extras: set[str],
+def _fix_lonely_groups(skills: list[dict], blocks: dict, fillers: set[str], extras: set[str],
                        reasons: dict | None = None, may_add: bool = True) -> None:
     """Fewer one-line sidebar groups (user preference). A lone item's group is topped up with more
-    items from the same pool group that the chosen projects used (marked as extras) when `may_add`;
+    items from the same pool group that are on the main sidebar (marked as extras) when `may_add`;
     if it is still alone and it is only an extra, it's left off. A lone asked/related/core item
     keeps its line - it earned it."""
     pool_group = {item: g["group"] for g in blocks["skill_pool"] for item in g["items"]}
@@ -479,14 +489,14 @@ def _fix_lonely_groups(skills: list[dict], blocks: dict, shown: set[str], extras
             continue
         home = pool_group.get(g["items"][0])
         if may_add:
-            fillers = [i for grp in blocks["skill_pool"] if grp["group"] == home for i in grp["items"]
-                       if i in shown and i not in on_sidebar and i not in ASKED_ONLY]
-            for item in fillers[:2]:
+            top_ups = [i for grp in blocks["skill_pool"] if grp["group"] == home for i in grp["items"]
+                       if i in fillers and i not in on_sidebar]
+            for item in top_ups[:2]:
                 g["items"].append(item)
                 on_sidebar.add(item)
                 extras.add(item)
                 if reasons is not None:
-                    reasons[item] = {"layer": "extra", "because": "used in a project on this resume"}
+                    reasons[item] = {"layer": "extra", "because": "on your main resume"}
         if len(g["items"]) == 1 and g["items"][0] in extras:
             skills.remove(g)
 

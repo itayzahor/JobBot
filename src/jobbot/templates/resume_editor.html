@@ -75,6 +75,10 @@
   .frame-wrap.whole .frame-box { cursor: zoom-in; }
   .frame-wrap.width .frame-box { cursor: zoom-out; }
   #preview { pointer-events: none; }  /* clicks go to the box (zoom), not into the page */
+  .bar form { margin: 0; display: contents; }
+  .bar form[hidden] { display: none; }
+  .applied-btn { background: var(--green-soft); color: var(--green); border-color: rgba(22, 163, 74, 0.25); }
+  .applied-btn:disabled { opacity: 0.5; cursor: default; }
   .bar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.6rem; }
   .fit { font-size: 0.82rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 999px; }
   .fit.ok { background: var(--green-soft); color: var(--green); }
@@ -215,14 +219,20 @@
     <div class="bar">
       {% if mode == 'job' %}
       {% set pdf_url = url_for('resume.job_pdf', job_id=record.job.id) %}
-      <button type="button" id="save">Save draft</button>
-      <button type="button" class="primary" id="approve" title="Save, and mark this as the version you send">Approve</button>
+      <button type="button" class="primary" id="approve" title="Save as the version you send, and put the PDF in your Downloads folder (replacing the previous one)">Approve &amp; save to Downloads</button>
+      {% if record.job.url %}<a href="{{ record.job.url }}" target="_blank" rel="noopener"><button type="button">Open listing ↗</button></a>{% endif %}
+      <form method="post" action="{{ url_for('apply', job_id=record.job.id) }}" id="applied-form" hidden
+            onsubmit="return confirm('Mark this job as applied? Its resume is locked as the version you sent.');">
+        <input type="hidden" name="next" value="dashboard">
+        <button type="submit" class="applied-btn" id="applied-btn">I applied ✓</button>
+      </form>
+      <a href="{{ pdf_url }}" target="_blank" id="open-pdf" {% if not has_pdf %}hidden{% endif %}><button type="button">Open PDF</button></a>
       {% else %}
       {% set pdf_url = url_for('resume.main_pdf') %}
       <button type="button" class="primary" id="save">Save</button>
-      {% endif %}
       <a href="{{ pdf_url }}" target="_blank" id="open-pdf" {% if not has_pdf %}hidden{% endif %}><button type="button">Open PDF</button></a>
       <a href="{{ pdf_url }}?download=1" id="dl-pdf" {% if not has_pdf %}hidden{% endif %}><button type="button">Download PDF</button></a>
+      {% endif %}
       <span class="fit" id="fit"></span>
       <span class="zoom" title="Click the page to zoom in or out">
         <button type="button" data-zoom="whole">Whole page</button><button type="button" data-zoom="width">Fit width</button>
@@ -450,7 +460,7 @@ function renderChanges() {
 function renderDraft() {
   const body = document.getElementById("ai-body"); if (!body) return;
   document.getElementById("ai-run").textContent = DRAFT ? "Redraft" : "Draft with AI";
-  if (!DRAFT) { body.innerHTML = '<p class="ai-meta">No AI draft yet. The agent reads the job description and drafts this resume from your approved blocks - nothing is saved until you press Save draft or Approve.</p>'; return; }
+  if (!DRAFT) { body.innerHTML = '<p class="ai-meta">No AI draft yet. The agent reads the job description and drafts this resume from your approved blocks - nothing is saved until you press Approve.</p>'; return; }
   const when = new Date(DRAFT.drafted_at).toLocaleString();
   const missingMust = DRAFT.requirements.filter(r => r.must_have && r.match === "missing").length;
   const reqs = DRAFT.requirements.map(r => `<li><span class="m ${r.match}">${r.match}</span>
@@ -633,7 +643,16 @@ const aboutJson = () => JSON.stringify({ style: aboutStyle, texts: aboutTexts })
 function markDirty() {
   const dirty = JSON.stringify(selection()) !== savedJson || replacements().length > 0
     || (MODE === "job" && savedAbout !== undefined && aboutJson() !== savedAbout);
-  document.getElementById("saved-state").textContent = dirty ? "Unsaved changes" : "Saved";
+  document.getElementById("saved-state").textContent =
+    dirty ? "Unsaved changes" : (MODE === "job" && jobStatus === "none" ? "" : "Saved");
+  // "I applied" only once the version on screen is the approved one - otherwise it would lock
+  // an older version than what you're looking at.
+  const appliedForm = document.getElementById("applied-form");
+  if (appliedForm) {
+    appliedForm.hidden = jobStatus !== "approved";
+    document.getElementById("applied-btn").disabled = dirty;
+    document.getElementById("applied-btn").title = dirty ? "Approve your changes first" : "";
+  }
 }
 window.addEventListener("beforeunload", e => {
   if (document.getElementById("saved-state").textContent === "Unsaved changes") e.preventDefault();
@@ -650,7 +669,8 @@ function savedOk(data, what) {
   savedJson = JSON.stringify(selection()); savedAbout = aboutJson();
   showMessages([["ok", `${what} - the PDF was rebuilt (${data.free_mm} mm free).`]]
     .concat((data.warnings || []).map(m => ["warn", m])));
-  document.getElementById("open-pdf").hidden = document.getElementById("dl-pdf").hidden = false;
+  document.getElementById("open-pdf").hidden = false;
+  const dl = document.getElementById("dl-pdf"); if (dl) dl.hidden = false;
   renderProjects(); markDirty();
 }
 
@@ -670,13 +690,13 @@ if (MODE === "main") {
   {% if record %}
   const saveJob = approve => async () => {
     const data = await post("{{ url_for('resume.job_save', job_id=record.job.id) }}",
-      { selection: selection(), approve, about_style: aboutStyle, about_texts: aboutTexts });
+      { selection: selection(), approve, about_style: aboutStyle, about_texts: aboutTexts, to_downloads: approve });
     if (!data.ok) { showMessages(data.errors.map(m => ["err", "Not saved: " + m])); return; }
     jobStatus = data.status; renderStatus();
-    savedOk(data, approve ? "Approved - this is the version to send" : "Draft saved");
+    savedOk(data, data.saved_to ? `Approved and saved to ${data.saved_to} (replacing the previous one). Next: Open listing ↗, apply, then press "I applied ✓"` : "Approved");
+    if (data.export_error) document.getElementById("msgs").insertAdjacentHTML("afterbegin", `<div class="err">${esc(data.export_error)}</div>`);
   };
-  document.getElementById("save").onclick = e => withBusy(e.currentTarget, "Saving…", saveJob(false));
-  document.getElementById("approve").onclick = e => withBusy(e.currentTarget, "Approving…", saveJob(true));
+  document.getElementById("approve").onclick = e => withBusy(e.currentTarget, "Saving…", saveJob(true));
   const loadDraft = () => {
     loadState(DRAFT.selection);
     aboutTexts = { strengths: draftAbout("strengths"), personal: draftAbout("personal"), main: MAIN.about };
@@ -697,14 +717,21 @@ if (MODE === "main") {
     if (!confirm("Replace what's in the editor with the AI draft?")) return;
     loadDraft();
   };
+  // A never-approved job: the AI draft (stored server-side) is the starting point, so leaving
+  // without approving loses nothing unless it was edited.
+  function setDraftBaseline() {
+    if (jobStatus === "none") { savedJson = JSON.stringify(selection()); savedAbout = aboutJson(); markDirty(); }
+  }
+  window.setDraftBaseline = setDraftBaseline;
   document.getElementById("ai-run").onclick = e => withBusy(e.currentTarget, "Drafting…", async () => {
-    if (jobStatus !== "none" && !confirm("Draft a new version with AI? It will replace what's in the editor (your saved version stays saved until you save again).")) return;
-    document.getElementById("ai-body").innerHTML = '<p class="ai-busy">Reading the job description and drafting - this takes about 20-40 seconds…</p>';
+    if (jobStatus !== "none" && !e.auto && !confirm("Draft a new version with AI? It will replace what's in the editor (your saved version stays saved until you save again).")) return;
+    document.getElementById("ai-body").innerHTML = '<p class="ai-busy">Reading the job description and drafting - this takes about 15-20 seconds…</p>';
+    showMessages([["ok", "Drafting your resume for this job with AI - about 15-20 seconds…"]]);
     try {
       const data = await post("{{ url_for('resume.job_draft', job_id=record.job.id) }}", {});
       if (!data.ok) { showMessages([["err", "Drafting failed: " + data.error]]); renderDraft(); return; }
-      DRAFT = data.draft; renderDraft(); loadDraft();
-      showMessages([["ok", "AI draft loaded into the editor - review it, then Save draft or Approve."]]);
+      DRAFT = data.draft; renderDraft(); loadDraft(); setDraftBaseline();
+      showMessages([["ok", 'AI draft loaded - review it, then press "Approve & save to Downloads".']]);
     } catch (err) { showMessages([["err", "Drafting failed: " + err]]); renderDraft(); }
   });
   document.getElementById("reset-main").onclick = () => {
@@ -732,6 +759,12 @@ if (MODE === "job") { initAbout(); savedAbout = aboutJson(); }
 // A job resume that was never saved has nothing on disk yet - it counts as unsaved.
 if (MODE === "job" && jobStatus === "none") savedJson = null;
 renderAboutVersions(); renderAll(); renderStatus(); renderDraft(); fitFrame();
+if (MODE === "job" && jobStatus === "none") {
+  // Opening a job's resume means you want to apply: start the AI draft right away, or, if one
+  // was already made, treat it as the starting point.
+  if (DRAFT) window.setDraftBaseline();
+  else { const b = document.getElementById("ai-run"); b.onclick({ currentTarget: b, auto: true }); }
+}
 </script>
 </body>
 </html>

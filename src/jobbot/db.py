@@ -176,6 +176,10 @@ def update_status(conn: sqlite3.Connection, job_id: str, status: str) -> None:
     conn.commit()
 
 
+# `reason` of a job the user added by hand (the dashboard's Add job form) - never auto-expired.
+MANUAL_REASON = "Added by hand"
+
+
 def expire_old_new_jobs(conn: sqlite3.Connection, max_age_days: int) -> int:
     """Move 'new' jobs posted more than max_age_days ago (by date_posted, falling back to
     first_seen when the source gave no date) to 'rejected'. Returns how many were moved.
@@ -184,15 +188,18 @@ def expire_old_new_jobs(conn: sqlite3.Connection, max_age_days: int) -> int:
     they mustn't show up on /deleted or count as a "didn't want it" label in
     qa/collect_ground_truth.py. Keeping the row (rather than DELETE-ing it) also keeps its dedup
     memory, so a still-live posting isn't re-scraped as new; normal 7-day retention removes it later.
+    Jobs added by hand (reason = MANUAL_REASON) are skipped: the user picked those on purpose, and
+    one brought back from 'rejected' still carries its old posting date.
     """
     cursor = conn.execute(
         """
         UPDATE jobs
         SET status = 'rejected', status_changed_at = datetime('now'), reason = ?
         WHERE status = 'new'
+        AND COALESCE(reason, '') != ?
         AND COALESCE(date_posted, date(first_seen)) < date('now', 'localtime', ?)
         """,
-        (f"Expired: posted more than {max_age_days} days ago", f"-{max_age_days} days"),
+        (f"Expired: posted more than {max_age_days} days ago", MANUAL_REASON, f"-{max_age_days} days"),
     )
     conn.commit()
     return cursor.rowcount

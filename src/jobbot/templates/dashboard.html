@@ -294,6 +294,49 @@
             border-color: rgba(220, 38, 38, 0.15);
         }
 
+        .add-job { margin: -1rem 0 1.75rem; }
+        .add-job > summary {
+            display: inline-flex; align-items: center; gap: 0.45rem;
+            padding: 0.5rem 1.05rem 0.5rem 0.8rem; border-radius: 999px;
+            background: var(--accent); color: #fff; font-size: 0.88rem; font-weight: 600;
+            box-shadow: 0 1px 2px rgba(79, 70, 229, 0.25), 0 2px 6px rgba(79, 70, 229, 0.18);
+            transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+        }
+        .add-job > summary::before {
+            content: "+"; display: inline-grid; place-items: center;
+            width: 1.25rem; height: 1.25rem; border-radius: 50%;
+            background: rgba(255, 255, 255, 0.22); font-size: 1rem; line-height: 1;
+            transition: transform 0.15s ease;
+        }
+        .add-job > summary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(79, 70, 229, 0.25), 0 6px 14px rgba(79, 70, 229, 0.22);
+        }
+        .add-job[open] > summary { background: var(--card); color: var(--accent); border: 1px solid var(--border); box-shadow: none; }
+        .add-job[open] > summary::before { content: "+"; transform: rotate(45deg); background: var(--accent-soft); }
+        .add-job-form {
+            background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+            padding: 1rem; margin-top: 0.6rem; display: grid; gap: 0.6rem;
+            grid-template-columns: 1fr 1fr;
+        }
+        .add-job-form label { display: grid; gap: 0.25rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+        .add-job-form .wide { grid-column: 1 / -1; }
+        .add-job-form input, .add-job-form textarea {
+            font: inherit; font-size: 0.88rem; color: var(--text); padding: 0.45rem 0.6rem;
+            border: 1px solid var(--border); border-radius: 6px; width: 100%;
+        }
+        .add-job-form textarea { min-height: 10rem; resize: vertical; }
+        .add-job-form .hint { font-weight: 400; }
+        @media (max-width: 560px) { .add-job-form { grid-template-columns: 1fr; } }
+
+        .notice {
+            background: var(--accent-soft); color: var(--accent); border-radius: 10px;
+            padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.88rem; font-weight: 600;
+        }
+        .notice.warn { background: var(--red-soft); color: var(--red); }
+
+        .job:target { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
         .empty {
             text-align: center;
             padding: 4rem 1rem;
@@ -343,8 +386,28 @@
         </form>
     </div>
 
+    <details class="add-job" {% if added == 'missing' %}open{% endif %}>
+        <summary>Add a job</summary>
+        <form method="post" action="{{ url_for('add_job') }}" class="add-job-form">
+            <label class="wide">Link <input type="url" name="url" required placeholder="https://www.linkedin.com/jobs/view/…"></label>
+            <label>Title <input type="text" name="title" required></label>
+            <label>Company <input type="text" name="company" required></label>
+            <label class="wide">Location <span class="hint">(optional)</span> <input type="text" name="location"></label>
+            <label class="wide">Description <span class="hint">(paste the posting - the AI resume draft reads it)</span>
+                <textarea name="description"></textarea></label>
+            <div class="wide"><button class="apply" type="submit">Add job</button></div>
+        </form>
+    </details>
+
+    {% if added == 'ok' %}<div class="notice">Job added - it's at the top of the list.</div>
+    {% elif added == 'restored' %}<div class="notice">This job was already in JobBot (hidden) - it's back on New.</div>
+    {% elif added == 'new' %}<div class="notice">This job is already on New.</div>
+    {% elif added == 'missing' %}<div class="notice warn">Link, title and company are required.</div>
+    {% elif added %}<div class="notice warn">You already have this job - it's on the {{ status_tab.get(added, added) }} tab.</div>
+    {% endif %}
+
     {% for job in jobs %}
-    <div class="job">
+    <div class="job" id="job-{{ job.id }}">
         <h2>{{ job.title }} — <span class="company">{{ job.company }}</span></h2>
         <div class="meta">
             <span>{{ job.location }}</span>

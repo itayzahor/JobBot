@@ -449,6 +449,14 @@ record.
     available, so the display always has something rather than a blank when a source lacks the
     data. Computed in the `/` route (`dict(row)` + a `posted_display` key) rather than in the
     template, since Jinja doesn't parse dates.
+- **"Add a job by hand"** (collapsible form on New, `POST /add_job`): link, title, company,
+  optional location, pasted description - for a job the scraper missed (usually a search term it
+  doesn't cover). Manual entry on purpose (user: rare enough that filling a form beats a fragile
+  fetcher; `scripts/add_job.py` still fetches LinkedIn links from the command line). Skips the
+  filter, `reason = db.MANUAL_REASON` ("Added by hand"), which `expire_old_new_jobs` never expires.
+  A LinkedIn link is rewritten to the scraper's `/jobs/view/<id>` form so dedup still matches; other
+  links keep their URL with `site='manual'`. Already in the DB: rejected/deleted -> back to New,
+  otherwise a notice names the tab it's on.
 - A "Clear jobs older than [N] days" form (`POST /clear_old`, defaults to `config.MAX_JOB_AGE_DAYS`,
   asks for confirmation) - see "Stale-job expiry" in Step 3.
 - A "Last scraped: X ago" line and a "Scrape Now" button (`POST /scrape`) let the user trigger a
@@ -730,8 +738,16 @@ can't tell when text overflows the page, and the Slides print path had lost the 
   Opens the editor starting from the current main resume, plus the job (posting link, collapsible
   description to read while editing) and a live "Changes from your main resume" list. Here a bullet
   edit is **for this job only** - it stays in the job's selection as unapproved wording (a warning)
-  and `blocks.json` is never touched. Save draft / Approve ("the version I send"); any save after
-  approval drops it back to draft. "Reset to main" and "Make this my main resume" (refused while
+  and `blocks.json` is never touched. **Apply flow** (user's steps, 2026-11-12): pressing Resume on
+  a job with nothing saved **starts the AI draft automatically** (a stored draft is the baseline, so
+  leaving without approving doesn't warn unless it was edited); the bar has **"Approve & save to
+  Downloads"** (no Save draft button - the user doesn't keep drafts; the AI draft is stored anyway
+  for the feedback step), **Open listing ↗**, and **"I applied ✓"** (posts to `/apply/<id>`, so the
+  resume freezes; shown only when approved and disabled while there are unapproved edits). Approve
+  copies the PDF to the real Downloads folder (read from the registry) as `<name>.pdf`, **replacing**
+  the previous one - a browser download can't overwrite, it makes "<name> (1).pdf"; the server can,
+  since it runs on the user's machine. A file held open by a viewer -> a clear "close it and press
+  Approve again" message. "Reset to main" and "Make this my main resume" (refused while
   the job version has reworded bullets - main holds approved wording only). Stored by
   `resume/job_resumes.py` as `data/resume/jobs/<id>.json` + `.pdf`, with a snapshot of the job
   (job rows get auto-deleted by retention, the resume shouldn't lose its context) and
@@ -761,10 +777,17 @@ can't tell when text overflows the page, and the Slides print path had lost the 
   About Me copying the posting's domain ("focused on system modeling" for a candidate who has
   never done it): sentence 1's focus must be the candidate's real work, and nothing the model
   marked missing/partial in `requirements` may appear as a focus or strength.
-  **Extras must be explainable**: each project in `blocks.json` lists the `skills` it actually used,
-  and an extra is kept only if one of the 2 chosen projects used it (user: "fillers should be
-  skills the projects show - easier to explain"; Playwright only when a posting asks). **Fewer
-  one-line groups**: pool groups Data + Databases are one group titled just "Data", Testing is in Development Tools. Groups are never merged under joined titles (user disliked "Backend & Frontend"): `_fix_lonely_groups` tops a lone item's group up with up to 2 more items from the same pool group that the chosen projects used (marked extra, trimmed first); still alone and only an extra -> left off; a lone asked/related/core item keeps its line; Claude Code alone under AI-Assisted Development is OK. `tailor._call_model` also retries dropped connections (httpx/httpcore), not just Gemini API errors.
+  **Two skill levels, per project** (2026-11-12): each project in `blocks.json` has `skills` (all it
+  used) and `fillers` (the subset the user is comfortable talking about - set by the user, per
+  project, since comfort differs: Node.js is a filler in one project, not another). Only a chosen
+  project's `fillers` may appear unasked - as `extra` or `role` (code drops a non-filler `role` item
+  with a note); every other skill appears only when the posting asks for it (`asked`/`related`).
+  New skills default to only-if-asked. This replaced both "any skill the chosen projects used" (let
+  NumPy/OpenCV in as fillers) and, briefly, "the main resume's sidebar" (it only covers JobBot and
+  ScanMate, so it failed for the other projects). The `ASKED_ONLY` constant is gone - the data holds
+  it now. The "names C" check unescapes Markdown first (a posting's `C\#` had read as plain C) and ignores
+  "C-level". **Fewer
+  one-line groups**: pool groups Data + Databases are one group titled just "Data", Testing is in Development Tools. Groups are never merged under joined titles (user disliked "Backend & Frontend"): `_fix_lonely_groups` tops a lone item's group up with up to 2 more items from the same pool group that are fillers of the chosen projects (marked extra, trimmed first); still alone and only an extra -> left off; a lone asked/related/core item keeps its line; Claude Code alone under AI-Assisted Development is OK. `tailor._call_model` also retries dropped connections (httpx/httpcore), not just Gemini API errors.
 - **Prompt structure (audited 2026-11-11, input ~9.6k -> ~7.8k tokens, no quality loss):** tagged
   parts, stable first and the job last - `<profile>`, `<resume_blocks>`, `<main_about>`,
   `<length_limit>`, `<job_posting>` (tags, not `#` headings: the profile has its own headings).
@@ -778,7 +801,7 @@ can't tell when text overflows the page, and the Slides print path had lost the 
   latter.** Each draft records `token_breakdown` (input / cached_input / output / thinking);
   typical: ~8k in, ~2k out, 2-7k thinking. Requirement calibration rules: "partial" = less of the
   same thing (not adjacent); an unmet number (GPA, years) is "missing"; evidence respects skill
-  tiers. `ASKED_ONLY` (Gmail API, Playwright) are never filler.
+  tiers.
 - **About Me wording** (picked by the user from a side-by-side of 4 variants x 4 jobs): sentence 1 is
   "<Title> who builds <1-2 broad areas>" with areas from a fixed list in the prompt (AI-powered
   applications, backend systems, data-driven applications, automation tools, end-to-end products,
@@ -797,7 +820,9 @@ can't tell when text overflows the page, and the Slides print path had lost the 
 - **Resume storage** (user: "I don't want 170 copies of my main resume"). Measured: a PDF is ~22 KB, the JSON 3-12 KB, but the HTML the PDF is rendered from was ~420 KB (embedded font) and unused - `render.render()` now writes it to a temp dir (`keep_html=` only for `render_resume.py`). An application sent with the main resume points to `main_versions/<fingerprint>.pdf|json` - one copy per distinct version of the main resume (fingerprint = hash of the assembled resume), shared by every application sent with it; `sent_pdf_path()` resolves which PDF a job shows. **Retention follows the job row** (user decision, keeping the existing 90-day applied rule): `job_resumes.cleanup()` runs after `db.cleanup_old_rows()` in every `pipeline.run()` and deletes a job's resume/draft files once its row is gone (new/deleted/rejected 7d, applied/closed 90d, process never), main versions no record points to, and any leftover HTML. Whole app at the time: data 15 MB (13 MB jobs.db), resumes ~0.1 MB, venv 608 MB, Playwright browsers ~2.3 GB outside the project (3 Chromium versions; JobBot uses the newest).
 - **Resume lock - the version sent stays as sent** (built 2026-11-11, user requirement). `db.mark_applied` - the one function the dashboard's Apply, the MCP `mark_applied` and an Inbox Accept all use - calls `job_resumes.freeze()`: a saved/approved resume becomes `status='sent'`; with nothing saved, the main resume (what was actually sent) is copied in with its PDF. Idempotent. Gmail-found outside applications (`site='gmail'`) are never frozen - what was sent is unknown. `db.undo_applied` -> `unfreeze()` (an accidental Apply). The hook is a lazy import (resume imports db), never fatal, and warns to **stderr** (db runs inside the MCP server, where stdout is the protocol). A sent resume - or an applied job with nothing recorded (applied before this existed) - opens the read-only `resume_sent.html` (PDF preview + download); save and AI draft return 409. Applied/Processes cards show only "Resume sent". `paths.RESUME_DIR` honours `JOBBOT_RESUME_DIR` so tests never touch real resumes: `qa/test_resume_lock.py` (13 checks, made-up data), and `test_mcp_server.py` / `test_gmail_suggestions.py` now set it too (their mark_applied calls would otherwise freeze fake jobs into the real data/resume/jobs/).
 - **Tailoring agent** (`resume/tailor.py`, model `gemini-3.8-flash` - stronger than the filter's
-  flash-lite, affordable since it runs once per click). Same split as the job filter: the model
+  flash-lite, affordable since it runs once per click). `thinking_level="low"`: the model call was
+  32 of a draft's 35s; low cut drafts to ~16-19s (from 30-56s) with the same projects, near-identical
+  sidebar, same requirement calls and equivalent About Me on the 3 test jobs. Same split as the job filter: the model
   judges, Python decides. One structured call: `requirements` first (each quoted from the posting,
   must-have vs nice, have/partial/missing with evidence from the profile - quote-first), then 2
   projects with their bullet **numbers ranked** by relevance, the sidebar, About Me, and (usually

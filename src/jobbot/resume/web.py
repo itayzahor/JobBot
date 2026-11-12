@@ -14,6 +14,7 @@ The two modes differ in what a bullet edit means:
 """
 
 import os
+import shutil
 from pathlib import Path
 
 from flask import Blueprint, abort, jsonify, render_template, request, send_file
@@ -64,6 +65,34 @@ def _render_checked(selection: dict, blocks: dict, pdf: Path):
         return None, str(e)
     os.replace(tmp, pdf)
     return result, None
+
+
+def _downloads_dir() -> Path:
+    """The user's Downloads folder (Windows lets it be moved - read where it really is)."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as key:
+            return Path(os.path.expandvars(winreg.QueryValueEx(key, "{374DE290-123F-4565-9164-39C4925E467B}")[0]))
+    except OSError:
+        return Path.home() / "Downloads"
+
+
+def _save_to_downloads(pdf: Path) -> tuple[str | None, str | None]:
+    """Copy a resume PDF to Downloads as "<name>.pdf", replacing the previous one - a browser
+    download can't overwrite (it makes "<name> (1).pdf"), but this server runs on the user's own
+    machine, so it can. Returns (path, None) or (None, error)."""
+    target = _downloads_dir() / f"{content.load_blocks()['fixed']['name']}.pdf"
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.stem + ".jobbot-tmp.pdf")
+        shutil.copyfile(pdf, tmp)
+        os.replace(tmp, target)
+    except PermissionError:
+        return None, f"Couldn't replace {target.name} in Downloads - it's open in another program. Close it and press Approve again."
+    except OSError as e:
+        return None, f"Couldn't save to Downloads: {e}"
+    return str(target), None
 
 
 def _pdf_response(pdf: Path):
@@ -220,9 +249,12 @@ def job_save(job_id):
     else:
         record["status"], record["approved_at"] = "draft", None  # a change after approval needs re-approval
     job_resumes.save(record)
+    saved_to, export_error = (_save_to_downloads(job_resumes.pdf_path(job_id)) if payload.get("to_downloads")
+                              else (None, None))
     return jsonify(ok=True, status=record["status"], warnings=check.warnings,
                    main_free_mm=round(result.main_free_mm, 1),
-                   free_mm=round(min(result.main_free_mm, result.sidebar_free_mm), 1))
+                   free_mm=round(min(result.main_free_mm, result.sidebar_free_mm), 1),
+                   saved_to=saved_to, export_error=export_error)
 
 
 @bp.route("/resume/job/<job_id>/make_main", methods=["POST"])
