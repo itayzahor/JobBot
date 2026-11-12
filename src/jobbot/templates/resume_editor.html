@@ -77,8 +77,6 @@
   #preview { pointer-events: none; }  /* clicks go to the box (zoom), not into the page */
   .bar form { margin: 0; display: contents; }
   .bar form[hidden] { display: none; }
-  .applied-btn { background: var(--green-soft); color: var(--green); border-color: rgba(22, 163, 74, 0.25); }
-  .applied-btn:disabled { opacity: 0.5; cursor: default; }
   .bar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.6rem; }
   .fit { font-size: 0.82rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 999px; }
   .fit.ok { background: var(--green-soft); color: var(--green); }
@@ -219,13 +217,8 @@
     <div class="bar">
       {% if mode == 'job' %}
       {% set pdf_url = url_for('resume.job_pdf', job_id=record.job.id) %}
-      <button type="button" class="primary" id="approve" title="Save as the version you send, and put the PDF in your Downloads folder (replacing the previous one)">Approve &amp; save to Downloads</button>
+      <button type="button" class="primary" id="approve" title="Save the PDF to your Downloads folder (replacing the previous one), mark this job as applied - which locks this resume as the version you sent - and go back to New">Approve, save &amp; mark applied</button>
       {% if record.job.url %}<a href="{{ record.job.url }}" target="_blank" rel="noopener"><button type="button">Open listing ↗</button></a>{% endif %}
-      <form method="post" action="{{ url_for('apply', job_id=record.job.id) }}" id="applied-form" hidden
-            onsubmit="return confirm('Mark this job as applied? Its resume is locked as the version you sent.');">
-        <input type="hidden" name="next" value="dashboard">
-        <button type="submit" class="applied-btn" id="applied-btn">I applied ✓</button>
-      </form>
       <a href="{{ pdf_url }}" target="_blank" id="open-pdf" {% if not has_pdf %}hidden{% endif %}><button type="button">Open PDF</button></a>
       {% else %}
       {% set pdf_url = url_for('resume.main_pdf') %}
@@ -645,14 +638,6 @@ function markDirty() {
     || (MODE === "job" && savedAbout !== undefined && aboutJson() !== savedAbout);
   document.getElementById("saved-state").textContent =
     dirty ? "Unsaved changes" : (MODE === "job" && jobStatus === "none" ? "" : "Saved");
-  // "I applied" only once the version on screen is the approved one - otherwise it would lock
-  // an older version than what you're looking at.
-  const appliedForm = document.getElementById("applied-form");
-  if (appliedForm) {
-    appliedForm.hidden = jobStatus !== "approved";
-    document.getElementById("applied-btn").disabled = dirty;
-    document.getElementById("applied-btn").title = dirty ? "Approve your changes first" : "";
-  }
 }
 window.addEventListener("beforeunload", e => {
   if (document.getElementById("saved-state").textContent === "Unsaved changes") e.preventDefault();
@@ -693,8 +678,17 @@ if (MODE === "main") {
       { selection: selection(), approve, about_style: aboutStyle, about_texts: aboutTexts, to_downloads: approve });
     if (!data.ok) { showMessages(data.errors.map(m => ["err", "Not saved: " + m])); return; }
     jobStatus = data.status; renderStatus();
-    savedOk(data, data.saved_to ? `Approved and saved to ${data.saved_to} (replacing the previous one). Next: Open listing ↗, apply, then press "I applied ✓"` : "Approved");
-    if (data.export_error) document.getElementById("msgs").insertAdjacentHTML("afterbegin", `<div class="err">${esc(data.export_error)}</div>`);
+    savedOk(data, "Approved");
+    // The PDF didn't reach Downloads (e.g. open in a viewer): stay here, nothing is marked applied.
+    if (data.export_error) {
+      document.getElementById("msgs").insertAdjacentHTML("afterbegin", `<div class="err">${esc(data.export_error)}</div>`);
+      return;
+    }
+    // Mark applied (locks this resume as the version sent) and go back to New.
+    const res = await fetch("{{ url_for('apply', job_id=record.job.id) }}",
+      { method: "POST", body: new URLSearchParams({ next: "dashboard" }) });
+    if (!res.ok) { showMessages([["err", "Saved to Downloads, but marking it applied failed - use Applied on the New tab."]]); return; }
+    window.location.href = "{{ url_for('dashboard', moved=record.job.title) }}";
   };
   document.getElementById("approve").onclick = e => withBusy(e.currentTarget, "Saving…", saveJob(true));
   const loadDraft = () => {
@@ -731,7 +725,7 @@ if (MODE === "main") {
       const data = await post("{{ url_for('resume.job_draft', job_id=record.job.id) }}", {});
       if (!data.ok) { showMessages([["err", "Drafting failed: " + data.error]]); renderDraft(); return; }
       DRAFT = data.draft; renderDraft(); loadDraft(); setDraftBaseline();
-      showMessages([["ok", 'AI draft loaded - review it, then press "Approve & save to Downloads".']]);
+      showMessages([["ok", 'AI draft loaded - review it, then press "Approve, save & mark applied".']]);
     } catch (err) { showMessages([["err", "Drafting failed: " + err]]); renderDraft(); }
   });
   document.getElementById("reset-main").onclick = () => {

@@ -11,7 +11,7 @@ SEARCH_TERMS = [
     "ai engineer",
     "product manager",
     "technical product manager",
-    "technical program manager",
+    "security engineer",
     "forward deployed engineer",
 ]
 

@@ -740,14 +740,14 @@ can't tell when text overflows the page, and the Slides print path had lost the 
   edit is **for this job only** - it stays in the job's selection as unapproved wording (a warning)
   and `blocks.json` is never touched. **Apply flow** (user's steps, 2026-11-12): pressing Resume on
   a job with nothing saved **starts the AI draft automatically** (a stored draft is the baseline, so
-  leaving without approving doesn't warn unless it was edited); the bar has **"Approve & save to
-  Downloads"** (no Save draft button - the user doesn't keep drafts; the AI draft is stored anyway
-  for the feedback step), **Open listing ↗**, and **"I applied ✓"** (posts to `/apply/<id>`, so the
-  resume freezes; shown only when approved and disabled while there are unapproved edits). Approve
-  copies the PDF to the real Downloads folder (read from the registry) as `<name>.pdf`, **replacing**
+  leaving without approving doesn't warn unless it was edited); the bar has **Open listing ↗** and
+  **"Approve, save & mark applied"** - one click saves the PDF to Downloads, posts to `/apply/<id>`
+  (so the resume freezes as sent) and returns to New with a "moved to Applied" notice (`?moved=`).
+  No Save draft button - the user doesn't keep drafts; the AI draft is stored anyway for the
+  feedback step. An accidental approve is undone with Undo on the Applied tab. Approve copies the PDF to the real Downloads folder (read from the registry) as `<name>.pdf`, **replacing**
   the previous one - a browser download can't overwrite, it makes "<name> (1).pdf"; the server can,
   since it runs on the user's machine. A file held open by a viewer -> a clear "close it and press
-  Approve again" message. "Reset to main" and "Make this my main resume" (refused while
+  Approve again" message, and the job is not marked applied. "Reset to main" and "Make this my main resume" (refused while
   the job version has reworded bullets - main holds approved wording only). Stored by
   `resume/job_resumes.py` as `data/resume/jobs/<id>.json` + `.pdf`, with a snapshot of the job
   (job rows get auto-deleted by retention, the resume shouldn't lose its context) and

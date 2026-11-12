@@ -399,6 +399,7 @@
         </form>
     </details>
 
+    {% if moved %}<div class="notice">“{{ moved }}” moved to Applied - your resume is in Downloads, locked as the version you sent.</div>{% endif %}
     {% if added == 'ok' %}<div class="notice">Job added - it's at the top of the list.</div>
     {% elif added == 'restored' %}<div class="notice">This job was already in JobBot (hidden) - it's back on New.</div>
     {% elif added == 'new' %}<div class="notice">This job is already on New.</div>

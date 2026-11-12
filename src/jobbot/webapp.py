@@ -110,6 +110,7 @@ def dashboard():
         scraping=_scraping_in_progress,
         default_max_age_days=config.MAX_JOB_AGE_DAYS,
         added=request.args.get("added"),
+        moved=request.args.get("moved"),  # title of a job just marked applied from its resume page
         status_tab=_STATUS_TAB,
     )
 
