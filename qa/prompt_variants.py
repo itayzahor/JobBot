@@ -42,6 +42,10 @@ Each is a deliberate structuring choice to test, not a random rewrite:
 - "quote_first_background_v5": v4's analyst/BI fix + a third model-reported fact, `experience_flexible`,
   with the exception and its 4-year cap applied in Python (classify(judge_flexibility=True)).
   Scored, not promoted - v3 stays in production.
+- "quote_first_background_v6": v3 + `student_only` (posting accepts only current students), applied
+  in Python via classify(judge_student=True). PROMOTED 2026-11-14 - it is now gemini_filter's
+  SYSTEM_INSTRUCTION; v3's text is frozen below. Scores are in the gitignored CLAUDE.local.md (the
+  repo is public), not in a SCORES block.
 
 Each variant's measured scores are written in a "SCORES" comment block directly above its prompt.
 
@@ -245,7 +249,52 @@ whichever of the two judgments is most decisive.
 # data engineering, after seeing the model rationalize a "Business Intelligence Architect" posting
 # as data-engineering-adjacent (also now caught earlier and for free by title_filter.py's regex,
 # but worth keeping the prompt correct too as a second layer).
-QUOTE_FIRST_BACKGROUND_V3 = PRODUCTION
+# Frozen copy (2026-11-14): this was gemini_filter.SYSTEM_INSTRUCTION verbatim until v6 added the
+# student_only rule to production, so v3 keeps scoring the exact text it was promoted with.
+QUOTE_FIRST_BACKGROUND_V3 = """You are screening job postings for a CS graduate with no formal \
+industry job yet, but substantial personal/academic projects - they'd rather see a borderline \
+job and reject it themselves than have it silently hidden. Postings may be in any language.
+
+Judge two independent things:
+
+1. years_estimate: find and mentally quote the exact sentence(s) stating a required number of \
+years of experience, if any. Qualitative language ("proven", "substantial", "mandatory", \
+"extensive") without an explicit number does not count. Set years_estimate to the explicit \
+number or the lower bound of a range (0 if none exists). Ignore a lower number that only applies \
+with an advanced degree the candidate lacks. If two qualification paths are joined by "or", \
+satisfying either is enough - don't take the more demanding path as the requirement. If the \
+posting itself explicitly invites candidates with less experience than the stated number to \
+apply anyway (e.g. "exceptional candidates with less experience are encouraged to apply", "this \
+is a guideline, not a strict requirement") AND the stated number is modest (roughly 2-4 years, \
+not a senior-level ask of 5+ years), treat that carve-out as satisfied and set years_estimate as \
+if the lower bar applies. Never apply this carve-out to a senior-level requirement (5+ years) - \
+generic "exceptional candidates considered" boilerplate on a senior posting doesn't override a \
+genuinely senior ask.
+
+2. relevant_background: true if this role's core discipline is software engineering, data \
+science/engineering, machine learning/AI engineering, or product/technical program management. \
+Data engineering means building data pipelines/infrastructure - NOT business intelligence \
+(reporting, dashboarding, data-warehouse analytics), which counts as a different profession here \
+even though the vocabulary overlaps. False only when the role is CLEARLY a different profession - \
+sales, business/financial analysis, business intelligence, customer support, \
+hardware/electrical/mechanical technician, administrative/operations, non-technical consulting - \
+even if it shares a search keyword with a tech role. When genuinely ambiguous, or the role is \
+technical-adjacent (e.g. a solutions/pre-sales role doing real engineering work), default to true \
+- the same "reject it themselves rather than have it hidden" principle applies here too.
+
+A senior/staff-level title has already been filtered out before you see this - don't infer \
+seniority from scope/expertise language alone, and don't let seniority-adjacent language affect \
+relevant_background either.
+
+If the schema has a reason field, give one specific sentence a human could spot-check, covering \
+whichever of the two judgments is most decisive.
+"""
+
+# v6 = v3 + a third judgment, student_only: the posting accepts only current students (e.g. "at least
+# 2 semesters left until graduation", "currently pursuing a B.Sc."), so a graduate can't apply. The
+# user (a graduate) kept seeing these. classify(judge_student=True) hides the job in Python when it's
+# true. Postings that also accept graduates ("recent graduate or final-year student") stay visible.
+QUOTE_FIRST_BACKGROUND_V6 = PRODUCTION
 
 # SCORES [quote_first_background_v4]: not fully scored - probed on the 8 jobs behind the two complaints
 #   only, then superseded by v5. It fixed the analyst reasoning (analysts now rejected on their years, not
@@ -391,5 +440,10 @@ VARIANTS: dict[str, dict] = {
         "instruction": QUOTE_FIRST_BACKGROUND_V5,
         "judge_background": True,
         "judge_flexibility": True,
+    },
+    "quote_first_background_v6": {
+        "instruction": QUOTE_FIRST_BACKGROUND_V6,
+        "judge_background": True,
+        "judge_student": True,
     },
 }

@@ -100,8 +100,7 @@ the call at a glance.
     profession that slips through broad search-term matches).
   - Rejects "Field Engineer" / "Field Applications Engineer" / "Field Service Engineer"-style
     titles (`\bfield\s+(?:\w+\s+)?engineer\b`) - customer-site/travel-heavy roles the user noticed
-    slipping through, same "wrong field entirely" category as economist/student.
-- Pass 0 - location filter (`src/jobbot/filters/location_filter.py`): rejects a job whose location
+    slipping through, same "wrong field entirely" category as economist/student.- Pass 0 - location filter (`src/jobbot/filters/location_filter.py`): rejects a job whose location
   contains Ashdod (English or אשדוד) - outside the commute range `config.DISTANCE_MILES` is meant
   to enforce, but the user kept seeing Ashdod postings anyway. Not fixed by shrinking the radius:
   LinkedIn only supports fixed radius steps (5/10/25/50/75/100 mi), and the next step down (10mi)
@@ -134,6 +133,17 @@ the call at a glance.
     text is the plain string `gemini_filter.SYSTEM_INSTRUCTION`; `qa/prompt_variants.py` imports it
     so the eval and production can't drift, and keeps the old prompt frozen as `LEGACY_CURRENT`.
     Trade-off accepted: ~1255 tokens/call vs ~1120 for the old prompt.
+  - **v6 (live since 2026-11-14) = v3 + a third judgment, `student_only`**: the posting accepts only
+    current students ("at least 2 semesters left", "currently pursuing a B.Sc.", "3rd year or
+    above"). The user has graduated and kept seeing these; `classify(judge_student=True)` (the
+    default) sets `fit=False` in Python when it's true. Graduates-also-welcome postings ("recent
+    graduate or final-year student") stay, and so does a line that only names fields of study -
+    the first wording hid a liked trading internship over "Studying Math, Physics, CS...".
+    Internships as such are NOT filtered (a blanket title filter was tried and undone the same day:
+    the user wants the ones open to graduates). Regression-tested on the full ground truth: the only
+    applied job v6 hid was a background-judgment flip that showed 4/4 on re-runs (noise); every
+    other change hides a deleted job (11 student-only postings). ~1450 tokens/call. v3's exact text
+    is frozen in `qa/prompt_variants.py`; `quote_first_background_v6` imports production.
   - Model: `gemini-3.1-flash-lite` (`gemini-3-flash-lite` does not exist as a model name). Billing is
     enabled on the API key, so the free-tier daily cap described below no longer binds.
   - The bullets below through "Case battery" describe the **previous years-only prompt**. They stay as
@@ -231,8 +241,8 @@ is Gemini's own verdict, useless as ground truth).
   periodically to keep banking new applied/deleted labels for future prompt experiments. **The
   snapshot (`qa/data/ground_truth.json`) and the per-job scores keyed to it
   (`qa/data/prompt_eval_results.json`) are gitignored on purpose**: they record which jobs were applied
-  to and deleted, and the GitHub repo is public. Only the aggregate `prompt_eval_report.json` is
-  committed. A fresh clone rebuilds them locally with `qa/collect_ground_truth.py` + `qa/prompt_eval.py`.
+  to and deleted, and the GitHub repo is public. The aggregate `prompt_eval_report.json` is gitignored
+  too since 2026-11-14 (its counts reveal how many jobs were applied to). A fresh clone rebuilds them locally with `qa/collect_ground_truth.py` + `qa/prompt_eval.py`.
 - **`qa/rescreen_new_jobs.py`** (one-off, run at promotion time): jobs scraped while
   `COLLECTING_GROUND_TRUTH` was on reached the dashboard un-screened, so this ran the production filter
   over every `status='new'` row and moved rejects to `'rejected'`. Non-destructive - rows are kept, with
@@ -861,6 +871,14 @@ can't tell when text overflows the page, and the Slides print path had lost the 
   "## Resume". Build order (user's call: screens before the agent, so they're tested on the main
   resume first): content file -> Main Resume editor page -> per-job resume editor -> tailoring
   agent that fills the editor with a draft -> feedback review / eval set from saved edits.
+
+## To do
+- **Duplicate detection doesn't work well** (user report, 2026-11-14): the same job still shows up
+  more than once on the dashboard. Not investigated yet. Places to look: the URL-hash dedup in
+  `pipeline.py`, and `scraper._dedup_cross_site`, which needs the same (company, title) plus a
+  0.97 description match, so it misses reposts with a slightly different title or description and
+  copies of a job scraped in different runs. That function only compares jobs within one scrape,
+  never against rows already in the DB. Start by collecting real duplicate pairs from the DB.
 
 ## Rejected: Secret Hunter (secrethunter.io)
 Investigated as an extra source; not pursued. Its `/jobs/search` endpoint has no public API - the

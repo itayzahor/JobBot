@@ -29,7 +29,7 @@ SYSTEM_INSTRUCTION = """You are screening job postings for a CS graduate with no
 industry job yet, but substantial personal/academic projects - they'd rather see a borderline \
 job and reject it themselves than have it silently hidden. Postings may be in any language.
 
-Judge two independent things:
+Judge three independent things:
 
 1. years_estimate: find and mentally quote the exact sentence(s) stating a required number of \
 years of experience, if any. Qualitative language ("proven", "substantial", "mandatory", \
@@ -56,12 +56,23 @@ even if it shares a search keyword with a tech role. When genuinely ambiguous, o
 technical-adjacent (e.g. a solutions/pre-sales role doing real engineering work), default to true \
 - the same "reject it themselves rather than have it hidden" principle applies here too.
 
+3. student_only: the candidate has already graduated. True only if the posting requires the \
+candidate to currently be a student - e.g. "at least 2 semesters left until graduation", "at \
+least one year of studies remaining", "currently pursuing a B.Sc./M.Sc./Ph.D.", "currently \
+enrolled in the penultimate or final year", "student position", or the Hebrew equivalents \
+("סטודנט/ית בשנה ב'/ג'", "לפחות שנתיים לסיום התואר"). False when graduates are also accepted \
+("recent graduate or final-year student", "student or graduate"), when the posting only asks for \
+a degree, or when it is unclear - an internship or student-titled role that doesn't require \
+current enrollment is false. A line that names fields of study ("Studying Math, Physics or \
+Computer Science", "background in CS") is about the field, not enrollment - false, unless the \
+posting also explicitly requires enrollment, a year of study, or time left until graduation.
+
 A senior/staff-level title has already been filtered out before you see this - don't infer \
 seniority from scope/expertise language alone, and don't let seniority-adjacent language affect \
 relevant_background either.
 
 If the schema has a reason field, give one specific sentence a human could spot-check, covering \
-whichever of the two judgments is most decisive.
+whichever of the judgments is most decisive.
 """
 
 
@@ -95,6 +106,18 @@ class BackgroundJudgment(BaseModel):
 
 
 class VerboseBackgroundJudgment(BackgroundJudgment):
+    reason: str
+
+
+class StudentJudgment(BackgroundJudgment):
+    """Production schema (judge_student=True, the default): adds `student_only` - does the posting
+    accept only current students ("at least 2 semesters left", "currently pursuing a B.Sc.")? The user
+    has graduated, so classify() hides such a job in Python. Added 2026-11-14 (v6)."""
+
+    student_only: bool
+
+
+class VerboseStudentJudgment(StudentJudgment):
     reason: str
 
 
@@ -156,6 +179,7 @@ def classify(
     return_usage: bool = False,
     judge_background: bool = True,
     judge_flexibility: bool = False,
+    judge_student: bool = True,
 ) -> "JobFitResult | tuple[JobFitResult, types.GenerateContentResponseUsageMetadata]":
     """Classify a job posting. verbose=True (qa/ tooling only) also asks for a reason string -
     the one part of this call with real added latency/output-token cost. Always returns the
@@ -179,6 +203,10 @@ def classify(
     derives `fit` as `relevant_background and (years_estimate <= MAX_YEARS_EXPERIENCE or
     (experience_flexible and years_estimate <= MAX_YEARS_WITH_FLEXIBLE_REQUIREMENT))`, so the "less
     experience is welcome" exception - and its cap - are applied by code, not by the model.
+
+    judge_student=True (the production default, used with judge_background) additionally requests
+    `student_only` and sets fit=False when it is true. qa/prompt_eval.py passes False for the older
+    variants, whose prompt text doesn't define the field. Ignored when judge_flexibility is set.
     """
     global _quota_exceeded
     if _quota_exceeded:
@@ -190,6 +218,8 @@ def classify(
     contents = f"Title: {title}\n\nDescription:\n{description}"
     if judge_flexibility:
         schema = VerboseFlexibleJudgment if verbose else FlexibleJudgment
+    elif judge_background and judge_student:
+        schema = VerboseStudentJudgment if verbose else StudentJudgment
     elif judge_background:
         schema = VerboseBackgroundJudgment if verbose else BackgroundJudgment
     else:
@@ -217,6 +247,8 @@ def classify(
                 fit = years_ok and parsed.relevant_background
             elif judge_background:
                 fit = parsed.years_estimate <= config.MAX_YEARS_EXPERIENCE and parsed.relevant_background
+                if judge_student and parsed.student_only:
+                    fit = False
             else:
                 fit = parsed.fit
             reason = parsed.reason if verbose else ""

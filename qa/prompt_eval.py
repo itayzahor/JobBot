@@ -75,6 +75,7 @@ def run_scoring(jobs: list[dict], limit: int | None, variant_names: list[str]) -
                     return_usage=True,
                     judge_background=variant["judge_background"],
                     judge_flexibility=variant.get("judge_flexibility", False),
+                    judge_student=variant.get("judge_student", False),
                 )
                 variant_results[job_id] = {
                     "fit": result.fit,
